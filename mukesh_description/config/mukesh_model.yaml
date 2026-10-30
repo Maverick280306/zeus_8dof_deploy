@@ -1,0 +1,88 @@
+# Mukesh: the Zeus CAD family with an ankle-roll joint (Fusion export
+# "leg_leg_leg", from Nexus/Mukesh_roll /leg_leg_leg, copied here unedited as
+# urdf/mukesh_raw.urdf).  Cleaned by zeus_description/scripts/clean_urdf.py:
+#
+#   python3 zeus_26-main/zeus_description/scripts/clean_urdf.py \
+#       --config mukesh_description/config/mukesh_model.yaml
+#
+# Same conventions as zeus_model.yaml: metres, radians, added frames given in
+# the ROBOT's frame (X forward, Y left, Z up, origin at the hip centre) with
+# every joint at zero.
+
+raw_urdf: urdf/mukesh_raw.urdf
+output_urdf: urdf/mukesh.urdf
+robot_name: mukesh
+mesh_uri_prefix: package://mukesh_description/meshes/
+
+# Same assembly frame as the Zeus export (identical Base_link mesh): the right
+# leg sits at +X, so left is -X, up +Z, and a right-handed frame forces
+# forward = +Y.
+#
+# CHECK: with forward +Y the foot reaches 99 mm BEHIND the ankle and 62 mm in
+# front of it (heel-long).  If the real foot's toe is the long side, flip to
+# forward: -Y and left: +X and re-run.
+body_frame:
+  forward: +Y
+  left: -X
+  up: +Z
+  root_link: base_link
+  origin_between:
+    - [left_hip_roll, left_hip_pitch]
+    - [right_hip_roll, right_hip_pitch]
+
+links:
+  Base_link: torso
+  # ---- left leg, chain order ----
+  Hip_pitch_infill_left: left_hip_pitch_motor
+  Hip_spring_left: left_hip_spring
+  hip_roll_acc_left: left_hip_roll_motor
+  knee_infill_8Sep_left: left_knee_motor
+  knee-spring_left: left_knee_spring
+  Ankel_pitch_left: left_ankle_motor
+  ankle-roll-1_left: left_ankle_roll_link
+  foot-1_left: left_foot
+  # ---- right leg, chain order ----
+  Hip_pitch_infill: right_hip_pitch_motor
+  Hip_spring: right_hip_spring
+  hip_roll_acc: right_hip_roll_motor
+  knee_infill_8Sep: right_knee_motor
+  knee-spring: right_knee_spring
+  Ankle_pitch: right_ankle_motor
+  ankle-roll-1: right_ankle_roll_link
+  foot-1: right_foot
+
+# Limits are placeholders like Zeus's (+/-45 deg), ankle roll +/-25 deg (the
+# range the ankle-roll what-if needed, ANKLE_ROLL_SPEC.md).
+joint_defaults:
+  effort: 25.0
+  velocity: 20.0
+
+joints:
+  Hip_pitch_infill_left_Hip_pitch_spring_left:    {name: left_hip_pitch,          kind: pitch, limit: [-0.7854, 0.7854]}
+  Hip_spring_left_Hip_spring_brackett_left:       {name: left_hip_pitch_spring,   kind: pitch, limit: [-0.7854, 0.7854], spring: true}
+  hip_roll_acc_left_Hip_roll_left:                {name: left_hip_roll,           kind: roll,  limit: [-0.7854, 0.7854]}
+  knee_infill_8Sep_left_Knee_pitch_spring_left:   {name: left_knee_pitch,         kind: pitch, limit: [-0.7854, 0.7854]}
+  knee-spring_left_knee_spring_brackett_left:     {name: left_knee_pitch_spring,  kind: pitch, limit: [-0.7854, 0.7854], spring: true}
+  Ankel_pitch_left_Ankel_pitch_left:              {name: left_ankle_pitch,        kind: pitch, limit: [-0.7854, 0.7854]}
+  ankle-roll-1_left_Ankel_roll_left:              {name: left_ankle_roll,         kind: roll,  limit: [-0.4363, 0.4363]}
+
+  Hip_pitch_infill_Hip_pitch_spring_right:        {name: right_hip_pitch,         kind: pitch, limit: [-0.7854, 0.7854]}
+  Hip_spring_Hip_spring_brackett_right:           {name: right_hip_pitch_spring,  kind: pitch, limit: [-0.7854, 0.7854], spring: true}
+  hip_roll_acc_Hip_roll_right:                    {name: right_hip_roll,          kind: roll,  limit: [-0.7854, 0.7854]}
+  knee_infill_8Sep_Knee_pitch_right_spring:       {name: right_knee_pitch,        kind: pitch, limit: [-0.7854, 0.7854]}
+  knee-spring_Knee_spring_bracket:                {name: right_knee_pitch_spring, kind: pitch, limit: [-0.7854, 0.7854], spring: true}
+  Ankle_pitch_Ankel_pitch_right:                  {name: right_ankle_pitch,       kind: pitch, limit: [-0.7854, 0.7854]}
+  ankle-roll-1_Ankel_roll_right:                  {name: right_ankle_roll,        kind: roll,  limit: [-0.4363, 0.4363]}
+
+# No IMU board in this export: centre of the torso box's top face (clean_urdf
+# --suggest).  Axes declared to be the robot's, as on Zeus.  CONFIRM on the robot.
+imu:
+  parent: torso
+  xyz: [0.0002, 0.0000, 0.2403]
+  rpy: [0.0, 0.0, 0.0]
+
+# Sole centres (clean_urdf --suggest).  x = -15.7 mm: the heel-long foot puts the
+# sole centre behind the hip line.
+contacts:
+  left_contact:  {parent: left_foot,  xyz: [-0.0157,  0.1025, -0.7057]}
+  right_contact: {parent: right_foot, xyz: [-0.0157, -0.1025, -0.7057]}

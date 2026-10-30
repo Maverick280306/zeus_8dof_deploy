@@ -1,0 +1,333 @@
+{
+ "nominal: deployed stack": {
+  "alive": 20.0,
+  "tilt95": 4.829119077175529,
+  "vx": 0.31072130535521364,
+  "fell": false,
+  "obs_err": 0.00031518110828976376,
+  "res_max": 6.194696801599645
+ },
+ "no policy: stored gait, zero residual": {
+  "alive": 0.664,
+  "tilt95": 18.66314781068528,
+  "vx": 0.40054859887586275,
+  "fell": true,
+  "obs_err": 0.0
+ },
+ "raw board values, no IMU correction": {
+  "alive": 2.448,
+  "tilt95": 11.675408340434053,
+  "vx": 0.25103791029983763,
+  "fell": true,
+  "obs_err": 0.0
+ },
+ "delay 8 ms": {
+  "alive": 20.0,
+  "tilt95": 4.780461458147117,
+  "vx": 0.30840032490945596,
+  "fell": false,
+  "obs_err": 0.0,
+  "res_max": 6.454949807844398
+ },
+ "delay 20 ms": {
+  "alive": 20.0,
+  "tilt95": 4.768484780300465,
+  "vx": 0.30913612421073833,
+  "fell": false,
+  "obs_err": 0.0,
+  "res_max": 6.894687722016468
+ },
+ "delay 40 ms": {
+  "alive": 20.0,
+  "tilt95": 4.879064267454078,
+  "vx": 0.31615294556595275,
+  "fell": false,
+  "obs_err": 0.0,
+  "res_max": 7.518065191005383
+ },
+ "firmware as-is: no torque FF, no pre-deflect": {
+  "alive": 1.5,
+  "tilt95": 15.587273022090612,
+  "vx": 0.13943671798720345,
+  "fell": true,
+  "obs_err": 0.0
+ },
+ "torque FF x0.5": {
+  "alive": 1.748,
+  "tilt95": 13.581074447723397,
+  "vx": 0.3405168201226476,
+  "fell": true,
+  "obs_err": 0.0
+ },
+ "torque FF x0.7": {
+  "alive": 4.08,
+  "tilt95": 8.262644835300891,
+  "vx": 0.2811978594092438,
+  "fell": true,
+  "obs_err": 0.0
+ },
+ "torque FF x0.8": {
+  "alive": 20.0,
+  "tilt95": 3.6300364127159583,
+  "vx": 0.3176027547418642,
+  "fell": false,
+  "obs_err": 0.0,
+  "res_max": 8.037160903592888
+ },
+ "torque FF x0.9": {
+  "alive": 20.0,
+  "tilt95": 3.9965697141996843,
+  "vx": 0.3080915556772954,
+  "fell": false,
+  "obs_err": 0.0,
+  "res_max": 7.220126821078514
+ },
+ "torque FF x1.1": {
+  "alive": 20.0,
+  "tilt95": 5.620845460583684,
+  "vx": 0.30656446266586623,
+  "fell": false,
+  "obs_err": 0.0,
+  "res_max": 6.369253102915675
+ },
+ "torque FF x1.2": {
+  "alive": 20.0,
+  "tilt95": 6.613687471298506,
+  "vx": 0.32232314778581844,
+  "fell": false,
+  "obs_err": 0.0,
+  "res_max": 6.554072777685371
+ },
+ "torque FF x1.3": {
+  "alive": 20.0,
+  "tilt95": 7.607465827182784,
+  "vx": 0.34269283105192283,
+  "fell": false,
+  "obs_err": 0.0,
+  "res_max": 6.567275177270841
+ },
+ "gains x0.7": {
+  "alive": 20.0,
+  "tilt95": 4.713541001367708,
+  "vx": 0.29572160778561574,
+  "fell": false,
+  "obs_err": 0.0,
+  "res_max": 7.151780169542064
+ },
+ "gains x1.5": {
+  "alive": 20.0,
+  "tilt95": 5.428845646788703,
+  "vx": 0.3191114000841769,
+  "fell": false,
+  "obs_err": 0.0,
+  "res_max": 6.727921209042616
+ },
+ "joint zero error +-0.5 deg": {
+  "alive": 20.0,
+  "tilt95": 4.374301418354382,
+  "vx": 0.2966832682154511,
+  "fell": false,
+  "obs_err": 0.0,
+  "res_max": 6.611516658444019
+ },
+ "joint zero error +-1.0 deg": {
+  "alive": 20.0,
+  "tilt95": 4.265556771326567,
+  "vx": 0.2835140079151122,
+  "fell": false,
+  "obs_err": 0.0,
+  "res_max": 7.091899114801135
+ },
+ "joint zero error +-2.0 deg": {
+  "alive": 20.0,
+  "tilt95": 6.0432432075745375,
+  "vx": 0.24495851013729303,
+  "fell": false,
+  "obs_err": 0.0,
+  "res_max": 8.127834029631309
+ },
+ "joint zero error +-3.0 deg": {
+  "alive": 20.0,
+  "tilt95": 8.533779614366022,
+  "vx": 0.2112198900889149,
+  "fell": false,
+  "obs_err": 0.0,
+  "res_max": 8.567379513721486
+ },
+ "IMU mount pitch error +1.0 deg": {
+  "alive": 20.0,
+  "tilt95": 5.192660380734914,
+  "vx": 0.31116912036622263,
+  "fell": false,
+  "obs_err": 0.0,
+  "res_max": 6.353506898484305
+ },
+ "IMU mount pitch error +2.0 deg": {
+  "alive": 20.0,
+  "tilt95": 5.663742644110091,
+  "vx": 0.31477155636936616,
+  "fell": false,
+  "obs_err": 0.0,
+  "res_max": 6.31437407748758
+ },
+ "IMU mount pitch error +3.0 deg": {
+  "alive": 20.0,
+  "tilt95": 6.224013792727967,
+  "vx": 0.31789651029458527,
+  "fell": false,
+  "obs_err": 0.0,
+  "res_max": 6.94467008124985
+ },
+ "IMU mount pitch error -1.0 deg": {
+  "alive": 20.0,
+  "tilt95": 4.4640247019371335,
+  "vx": 0.3079394125975101,
+  "fell": false,
+  "obs_err": 0.0,
+  "res_max": 6.258421332407649
+ },
+ "IMU mount pitch error -2.0 deg": {
+  "alive": 20.0,
+  "tilt95": 4.008436922348506,
+  "vx": 0.3019976524859371,
+  "fell": false,
+  "obs_err": 0.0,
+  "res_max": 6.027071611608329
+ },
+ "IMU mount pitch error -3.0 deg": {
+  "alive": 20.0,
+  "tilt95": 3.936411392422095,
+  "vx": 0.2954262794244137,
+  "fell": false,
+  "obs_err": 0.0,
+  "res_max": 8.34223353703005
+ },
+ "start AT REST, phase 0.00": {
+  "alive": 20.0,
+  "tilt95": 4.724947483552654,
+  "vx": 0.30132764986817306,
+  "fell": false,
+  "obs_err": 0.0,
+  "res_max": 8.230159426640828
+ },
+ "start AT REST, phase 0.05": {
+  "alive": 20.0,
+  "tilt95": 4.655569030476977,
+  "vx": 0.30421474417386013,
+  "fell": false,
+  "obs_err": 0.0,
+  "res_max": 14.131784575745185
+ },
+ "start AT REST, phase 0.10": {
+  "alive": 20.0,
+  "tilt95": 5.000952822672032,
+  "vx": 0.3063691801465212,
+  "fell": false,
+  "obs_err": 0.0,
+  "res_max": 11.27142109871284
+ },
+ "start AT REST, phase 0.15": {
+  "alive": 20.0,
+  "tilt95": 4.878472301111666,
+  "vx": 0.31144719459436254,
+  "fell": false,
+  "obs_err": 0.0,
+  "res_max": 9.42411508372677
+ },
+ "start AT REST, phase 0.20": {
+  "alive": 20.0,
+  "tilt95": 5.024880623800047,
+  "vx": 0.3114123934842361,
+  "fell": false,
+  "obs_err": 0.0,
+  "res_max": 6.348511419569989
+ },
+ "start AT REST, phase 0.25": {
+  "alive": 20.0,
+  "tilt95": 4.939366230329507,
+  "vx": 0.3094591420010634,
+  "fell": false,
+  "obs_err": 0.0,
+  "res_max": 10.066274748715832
+ },
+ "start AT REST, phase 0.30": {
+  "alive": 20.0,
+  "tilt95": 5.00104990585012,
+  "vx": 0.3110935122836358,
+  "fell": false,
+  "obs_err": 0.0,
+  "res_max": 9.505932552067154
+ },
+ "start AT REST, phase 0.40": {
+  "alive": 1.048,
+  "tilt95": 15.802564404024901,
+  "vx": 0.3012150594157849,
+  "fell": true,
+  "obs_err": 0.0
+ },
+ "start AT REST, phase 0.50": {
+  "alive": 1.228,
+  "tilt95": 16.562284809991237,
+  "vx": -0.02323723931368592,
+  "fell": true,
+  "obs_err": 0.0
+ },
+ "start AT REST, phase 0.60": {
+  "alive": 1.204,
+  "tilt95": 16.49169868435568,
+  "vx": 0.1004626557893511,
+  "fell": true,
+  "obs_err": 0.0
+ },
+ "start AT REST, phase 0.75": {
+  "alive": 1.352,
+  "tilt95": 14.834028897671729,
+  "vx": 0.22611932613061778,
+  "fell": true,
+  "obs_err": 0.0
+ },
+ "start AT REST, phase 0.90": {
+  "alive": 1.016,
+  "tilt95": 14.851550927549695,
+  "vx": 0.18303727174966555,
+  "fell": true,
+  "obs_err": 0.0
+ },
+ "start AT REST, phase 0.95": {
+  "alive": 20.0,
+  "tilt95": 5.170026642551996,
+  "vx": 0.3064478958643769,
+  "fell": false,
+  "obs_err": 0.0,
+  "res_max": 14.293839675613793
+ },
+ "joint zero error +-5.0 deg": {
+  "alive": 1.652,
+  "tilt95": 17.474749076584658,
+  "vx": 0.05923564137385243,
+  "fell": true,
+  "obs_err": 0.0
+ },
+ "gains x0.33": {
+  "alive": 2.54,
+  "tilt95": 8.59416743308868,
+  "vx": 0.19599824070466101,
+  "fell": true,
+  "obs_err": 0.0
+ },
+ "gains x0.5": {
+  "alive": 6.848,
+  "tilt95": 10.992113816275571,
+  "vx": 0.26780852698897817,
+  "fell": true,
+  "obs_err": 0.0
+ },
+ "gains x2.0": {
+  "alive": 20.0,
+  "tilt95": 5.443118036946928,
+  "vx": 0.31438030796708405,
+  "fell": false,
+  "obs_err": 0.0,
+  "res_max": 7.6189557544951905
+ }
+}

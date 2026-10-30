@@ -1,0 +1,667 @@
+# -----------------------------------------------------------------------------
+# v10 (ten joints, ankle roll) IS AHEAD OF stm32_zeuss, which is still v9 at 14953f5.
+# firmware_handoff/ carries the matching link_proto.h change, verified with that
+# repo's tools/check_proto.py. Once the firmware has taken it, stm32_zeuss/pi/
+# nexus_proto.py is canonical again: copy it over this one, do not edit here.
+# -----------------------------------------------------------------------------
+"""
+Python side of the STM32 <-> Raspberry Pi link.
+
+This is the counterpart of Appli/App/link_proto.h and MUST stay identical to
+it. tools/check_proto.py compares every field offset and the total size against
+the C header; run it after touching either file.
+
+Drop this into zeus_26 (e.g. zeus_can_interface/ or a shared package) and parse
+the bytes coming off the serial device. The STM32 owns all real-time sensing
+and state estimation - by the time a packet arrives, height and velocity are
+already estimated and the Pi only has to run the policy.
+
+Typical use:
+
+    import serial
+    from nexus_proto import NexusState, STATE_SIZE, NexusCommand
+
+    port = serial.Serial('/dev/ttyACM0', timeout=0.1)
+    buf = bytearray()
+    while True:
+        buf += port.read(4096)
+        pkt, buf = NexusState.find_and_parse(buf)
+        if pkt is None:
+            continue
+        if pkt.fused_valid == FUSION_OK:
+            height = pkt.fused_pos[2]
+            vel    = pkt.fused_vel
+"""
+
+from __future__ import annotations
+
+import binascii
+import struct
+from dataclasses import dataclass
+from typing import List, Optional, Tuple
+
+# --------------------------------------------------------------------------
+# Constants - keep in step with link_proto.h
+# --------------------------------------------------------------------------
+
+SYNC = 0xA5A5
+SYNC_BYTES = struct.pack("<H", SYNC)
+PROTO_VERSION = 10
+
+MSG_STATE = 0x01
+MSG_COMMAND = 0x02
+MSG_GAINS = 0x03        # Pi -> board, rare: drive gains
+
+NUM_JOINTS = 10
+NUM_ENCODERS = 4
+NUM_CONTACTS = 2
+
+# Spring encoder order in spring_angle[] and the `enc_valid` bitmask, as
+# NEXUS_ENC_* in link_proto.h: two AS5047P daisy chains, one per leg.
+ENC_L_HIP_PITCH = 0
+ENC_L_KNEE_PITCH = 1
+ENC_R_HIP_PITCH = 2
+ENC_R_KNEE_PITCH = 3
+SPRING_NAMES = ("left_hip_pitch", "left_knee_pitch", "right_hip_pitch", "right_knee_pitch")
+
+# Foot switch order in contact[] and in the `contacts` bitmask.
+#
+# ONE switch per foot, at the centre of the sole. There were two - a toe and a
+# heel on each foot - which let the board say which part of the sole was
+# loaded. It cannot any more: a foot is either taking weight or it is not. The
+# switch sits at the middle of the sole so that single answer is not biased
+# towards the part of the stride when the toe or the heel happens to be down.
+#
+# The `contacts` bitmask used to carry these four bits plus two derived
+# "this foot is down" bits at 4 and 5, which the board computed by OR-ing each
+# foot's pair. One switch per foot makes those copies, so they are gone; bits
+# 2..7 are unused and sent as zero.
+CONTACT_LEFT = 0
+CONTACT_RIGHT = 1
+
+CONTACT_L_BIT = 1 << 0
+CONTACT_R_BIT = 1 << 1
+
+CONTACT_NAMES = ("left", "right")
+
+# THE JOINT MAP. Index -> name, identical to NEXUS_J_* in link_proto.h:
+#
+#     index = bus * 5 + (node - 1)          bus 0 = FDCAN1, bus 1 = FDCAN2
+#
+# Every per-joint array in both packets uses it - joint_pos, joint_vel,
+# ref_angle, act_* and the command residual. The packet carries no names, so
+# this tuple is the only thing labelling them. tools/check_proto.py fails if it
+# ever disagrees with the C macros.
+JOINT_NAMES = (
+    "left_hip_pitch",     # 0  bus 0 node 1
+    "left_hip_roll",      # 1  bus 0 node 2
+    "left_knee_pitch",    # 2  bus 0 node 3
+    "left_ankle_pitch",   # 3  bus 0 node 4
+    "left_ankle_roll",    # 4  bus 0 node 5
+    "right_hip_pitch",    # 5  bus 1 node 1
+    "right_hip_roll",     # 6  bus 1 node 2
+    "right_knee_pitch",   # 7  bus 1 node 3
+    "right_ankle_pitch",  # 8  bus 1 node 4
+    "right_ankle_roll",   # 9  bus 1 node 5
+)
+
+# TWO LEGS, FIVE JOINTS EACH, NO WAIST. Ankle roll takes CAN node 5 on each bus,
+# the slot the waist actuators used to have. The model has no waist joints at
+# all: both hips bolt straight to the torso, so nothing sits between the IMU and
+# the legs.
+JOINT_INDEX = {name: i for i, name in enumerate(JOINT_NAMES)}
+
+# Joints the robot HAS but this build does not drive, carried in /joint_states
+# at 0 so robot_state_publisher can still place the parts above them.
+#
+# EMPTY now. It held the two waist joints, which the URDF had because the robot
+# had the parts even though nothing drove them. The current model has no waist
+# at all - both hips bolt straight to the torso - so there is nothing to stand
+# in for, and naming a joint here that the URDF does not have would have
+# robot_state_publisher rejecting it on every message.
+BOLTED_JOINT_NAMES = ()
+
+# --------------------------------------------------------------------------
+# The policy block: 50 contiguous float32 starting at byte 12, holding exactly
+# what the RL observation needs. Slice it out with numpy and skip parsing:
+#
+#     obs = np.frombuffer(raw, dtype="<f4", count=POLICY_COUNT,
+#                         offset=POLICY_OFFSET)
+#
+# Every value is a RAW SI QUANTITY. The STM32 does no policy scaling - no
+# target-height subtraction, no clipping, no sin/cos, no normalisation. Those
+# belong here, so the observation transform can change without reflashing.
+# --------------------------------------------------------------------------
+
+POLICY_OFFSET = 12
+POLICY_COUNT = 50
+
+# (name, count) in order, for indexing the block by field.
+POLICY_FIELDS = [
+    ("pelvis_z", 1),        # m, height above stance ground
+    ("quat", 4),            # w,x,y,z; observation uses x,y = indices 1,2
+    ("gyro", 3),            # rad/s, body frame
+    ("vel_hdg", 3),         # m/s, heading frame: lateral, forward, vertical
+    ("joint_pos", NUM_JOINTS),      # rad, output side
+    ("joint_vel", NUM_JOINTS),      # rad/s, output side
+    ("spring_angle", 4),    # rad, SPRING DEFLECTION, SPRING_NAMES order
+    ("ref_angle", NUM_JOINTS),      # rad, output side: the stored gait at `phase`
+    ("contact", 2),         # 0.0/1.0, debounced foot switches: left, right
+    ("foot_z", 2),          # m, world; [0] right, [1] left
+    ("phase", 1),           # 0..1 gait clock
+]
+
+POLICY_INDEX = {}
+_off = 0
+for _name, _n in POLICY_FIELDS:
+    POLICY_INDEX[_name] = (_off, _n)
+    _off += _n
+assert _off == POLICY_COUNT, _off
+
+FUSION_INVALID = 0
+FUSION_CONVERGING = 1
+FUSION_OK = 2
+
+# safety_state - what the board is allowing itself to do
+SAFETY_BOOT = 0
+SAFETY_IDLE = 1
+SAFETY_ARMED = 2
+SAFETY_FAULT = 3
+
+SAFETY_NAMES = {
+    SAFETY_BOOT: "BOOT",
+    SAFETY_IDLE: "IDLE",
+    SAFETY_ARMED: "ARMED",
+    SAFETY_FAULT: "FAULT",
+}
+
+# fk_valid bits, matching foot_z's order
+FK_RIGHT_VALID = 1 << 0
+FK_LEFT_VALID = 1 << 1
+
+# stream_flags - which optional parts of the packet are really being produced
+STREAM_GAIT_LIVE = 1 << 0
+STREAM_LEG_TEST = 1 << 1    # from the single-leg bench test, not the robot loop
+
+ACT_TELEM_FRESH = 1 << 0
+ACT_HB_FRESH = 1 << 1
+
+CMD_ENABLE = 1 << 0
+
+# Health bitmask, mirrors Appli/App/health.h
+HEALTH_IMU = 1 << 0
+HEALTH_ENC = 1 << 1
+HEALTH_CAN1 = 1 << 2
+HEALTH_CAN2 = 1 << 3
+HEALTH_LINK = 1 << 4
+HEALTH_TIMING = 1 << 5
+
+HEALTH_NAMES = {
+    HEALTH_IMU: "imu",
+    HEALTH_ENC: "encoders",
+    HEALTH_CAN1: "can1",
+    HEALTH_CAN2: "can2",
+    HEALTH_LINK: "pi-link",
+    HEALTH_TIMING: "loop-timing",
+}
+
+# --------------------------------------------------------------------------
+# Wire layout
+#
+# '<' little-endian, no padding - matches __attribute__((packed)) on the C side.
+# The C struct is ordered so every 4-byte field lands on a 4-byte boundary, so
+# numpy can also view the buffer directly if you prefer that to struct.unpack.
+# --------------------------------------------------------------------------
+
+STATE_FORMAT = (
+    "<"
+    "H"      # sync
+    "B"      # msg_id
+    "B"      # version
+    "I"      # seq
+    "I"      # timestamp_us
+    # ---------------- policy block, 50 float32 ----------------
+    "f"      # pelvis_z
+    "4f"     # quat            w,x,y,z fused
+    "3f"     # gyro            rad/s body
+    "3f"     # vel_hdg         m/s heading: lat, fwd, up
+    "10f"     # joint_pos       rad output side
+    "10f"     # joint_vel       rad/s output side
+    "4f"     # spring_angle    rad deflection
+    "10f"     # ref_angle       rad, stored gait at phase
+    "2f"     # contact         0.0 / 1.0
+    "2f"     # foot_z          m world: right, left
+    "f"      # phase           0..1
+    # ---------------- raw IMU ----------------
+    "4f"     # imu_quat        sensor's own fusion
+    "3f"     # imu_accel       m/s^2 specific force, includes gravity
+    "3f"     # imu_gyro        rad/s
+    "I"      # imu_seq
+    # ---------------- actuator diagnostics ----------------
+    "10f"     # act_torque      Nm
+    "10I"     # act_error
+    "10f"     # act_target      rad, what the drive was told, NaN when idle
+    # ---------------- estimator internals ----------------
+    "3f"     # fused_pos       m world
+    "3f"     # fused_vel       m/s world, before heading rotation
+    "3f"     # fused_gyro_bias
+    "3f"     # fused_accel_bias
+    # ---------------- diagnostics ----------------
+    "I"      # overruns        ticks missed, cumulative
+    "I"      # usb_dropped     state packets skipped
+    "2H"     # can_dropped     TX frames dropped per bus
+    "H"      # loop_us_max     worst cycle since the last packet
+    "H"      # enc_stalls      SPI transfers abandoned
+    "2B"     # can_bus_off     bus-off events per bus, saturating
+    "B"      # stream_flags    STREAM_*
+    "B"      # reserved0
+    "2H"     # contact_ticks
+    "10B"     # act_state
+    "10B"     # act_flags
+    "B"      # enc_valid
+    "B"      # contacts
+    "B"      # fused_valid
+    "B"      # health
+    "B"      # fk_valid        bit per foot_z entry
+    "B"      # safety_state    SAFETY_*
+    "B"      # gains_seq       echo of the last gains message applied
+    "B"      # reserved1
+    "H"      # crc
+)
+STATE_SIZE = struct.calcsize(STATE_FORMAT)
+
+COMMAND_FORMAT = (
+    "<"
+    "H"      # sync
+    "B"      # msg_id
+    "B"      # version
+    "I"      # seq
+    "10f"     # residual        turns, added to ref_angle
+    "H"      # flags
+    "H"      # crc
+)
+COMMAND_SIZE = struct.calcsize(COMMAND_FORMAT)
+
+
+def _crc16_slow(data: bytes) -> int:
+    """Reference implementation - a direct transcription of nexus_crc16() in C."""
+    crc = 0xFFFF
+    for b in data:
+        crc ^= b << 8
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x1021) & 0xFFFF if (crc & 0x8000) else (crc << 1) & 0xFFFF
+    return crc
+
+
+def crc16(data: bytes) -> int:
+    """CRC16-CCITT, init 0xFFFF, poly 0x1021 - same as nexus_crc16() in C.
+
+    binascii.crc_hqx is that exact algorithm (CRC-16/CCITT-FALSE) implemented
+    in C. This is not a micro-optimisation: the loop above costs ~550 us per
+    packet, which at 1 kHz is over half a core on a desktop and more than a
+    whole core on a Pi - the reader would simply fall behind and never recover.
+    The C version is ~300x faster. tests/test_proto.py checks the two agree."""
+    return binascii.crc_hqx(data, 0xFFFF)
+
+
+# --------------------------------------------------------------------------
+
+
+@dataclass
+class NexusState:
+    """One 1 kHz state packet from the STM32."""
+
+    seq: int
+    timestamp_us: int
+
+    # ---- policy block, in observation order -----------------------------
+    pelvis_z: float              # m, height above stance ground
+    quat: List[float]            # w,x,y,z body->world, fused estimate
+    gyro: List[float]            # rad/s, body frame
+    vel_hdg: List[float]         # m/s, heading frame: lateral, forward, up
+    joint_pos: List[float]       # rad, output side
+    joint_vel: List[float]       # rad/s, output side
+    spring_angle: List[float]    # rad, SPRING DEFLECTION (not joint angle)
+    ref_angle: List[float]       # rad, stored gait at phase; residual adds to it
+    contact: List[float]         # 0.0/1.0, one switch per foot
+    foot_z: List[float]          # m, world; [0] right, [1] left
+    phase: float                 # 0..1 gait clock
+
+    # ---- raw IMU --------------------------------------------------------
+    imu_quat: List[float]        # sensor's own 9-axis fusion
+    imu_accel: List[float]       # m/s^2, specific force, includes gravity
+    imu_gyro: List[float]        # rad/s
+    imu_seq: int
+
+    # ---- actuator diagnostics -------------------------------------------
+    act_torque: List[float]      # Nm
+    act_error: List[int]
+    act_target: List[float]      # rad, what the drive was actually told; NaN
+                                 # while nothing is being driven. ref_angle +
+                                 # residual is what was ASKED for; this is what
+                                 # the joint got, after the safety envelope,
+                                 # the slew limit and the interpolator - the
+                                 # thing to plot joint_pos against when tuning.
+
+    # ---- estimator internals --------------------------------------------
+    fused_pos: List[float]       # m, world; [0],[1] drift, logging only
+    fused_vel: List[float]       # m/s, world, before heading rotation
+    fused_gyro_bias: List[float]
+    fused_accel_bias: List[float]
+
+    overruns: int                # 1 kHz ticks the firmware missed, cumulative
+    usb_dropped: int             # state packets it could not hand to USB
+    can_dropped: List[int]       # TX frames dropped, per bus
+    loop_us_max: int             # worst control cycle since the last packet, us
+    enc_stalls: int              # encoder SPI transfers abandoned
+    can_bus_off: List[int]       # bus-off events per bus, saturating at 255
+    stream_flags: int            # STREAM_*
+    reserved0: int
+    contact_ticks: List[int]
+    act_state: List[int]
+    act_flags: List[int]
+    enc_valid: int
+    contacts: int
+    fused_valid: int
+    health: int
+    fk_valid: int                # bit per foot_z entry; see foot_z_right/left
+    safety_state: int            # SAFETY_*
+    gains_seq: int               # low byte of the last gains message applied;
+                                 # unchanged means the board refused it
+    reserved1: int
+
+    # ---- convenience ----------------------------------------------------
+
+    @property
+    def height(self) -> float:
+        """Height of the pelvis above the stance ground, metres."""
+        return self.pelvis_z
+
+    @property
+    def vel_lat(self) -> float:
+        return self.vel_hdg[0]
+
+    @property
+    def vel_fwd(self) -> float:
+        return self.vel_hdg[1]
+
+    @property
+    def vel_up(self) -> float:
+        return self.vel_hdg[2]
+
+    @property
+    def left_foot_down(self) -> bool:
+        """The left foot's switch is closed.
+
+        Kept as a named property rather than letting callers index contact[]
+        themselves: it read "either left switch closed" when each foot had two,
+        and the callers that ask "is this foot down" should not have to change
+        again the day a second switch comes back.
+        """
+        return bool(self.contact[CONTACT_LEFT])
+
+    @property
+    def right_foot_down(self) -> bool:
+        return bool(self.contact[CONTACT_RIGHT])
+
+    @property
+    def foot_z_right(self) -> Optional[float]:
+        """Right foot height above the stance ground, or None if the leg's
+        joint angles were unreadable when this packet was built.
+
+        Do not read foot_z[0] directly without checking. An unusable entry is
+        sent as NaN (and flagged here), because the value it used to carry was
+        0.0 - indistinguishable from a foot resting exactly on the ground."""
+        return self.foot_z[0] if (self.fk_valid & FK_RIGHT_VALID) else None
+
+    @property
+    def foot_z_left(self) -> Optional[float]:
+        """Left foot height, or None. See foot_z_right."""
+        return self.foot_z[1] if (self.fk_valid & FK_LEFT_VALID) else None
+
+    @property
+    def gait_live(self) -> bool:
+        """True when ref_angle and phase are real.
+
+        Robot mode sets this on every packet. Check it rather than watching
+        phase for movement - a gait parked at phase 0 looks identical to one
+        that is not running."""
+        return bool(self.stream_flags & STREAM_GAIT_LIVE)
+
+    @property
+    def loop_healthy(self) -> bool:
+        """True while the control loop is meeting its 1 ms deadline.
+
+        overruns is cumulative, so watch it for CHANGE rather than for zero -
+        a board that missed a tick during boot has a non-zero count forever."""
+        return self.loop_us_max < 1000
+
+    @property
+    def armed(self) -> bool:
+        """True when the board is actually driving the actuators."""
+        return self.safety_state == SAFETY_ARMED
+
+    @property
+    def faulted(self) -> bool:
+        """True when the board has taken the actuators away from you.
+
+        Recovering needs a stand_down() followed by an enabled command - see
+        NexusLink.stand_down()."""
+        return self.safety_state == SAFETY_FAULT
+
+    @property
+    def safety_state_name(self) -> str:
+        return SAFETY_NAMES.get(self.safety_state, "?")
+
+    @property
+    def fusion_usable(self) -> bool:
+        """True only once the estimator reports it has converged. Treat height
+        and velocity as meaningless before this - the filter starts with a
+        30 degree orientation and 1 m/s velocity uncertainty.
+
+        This also stays False while the firmware's robot_config.h has not been
+        marked calibrated: a filter can converge beautifully onto geometry that
+        does not match the robot, and converged is not the same as correct."""
+        return self.fused_valid == FUSION_OK
+
+    def faults(self) -> List[str]:
+        """Names of subsystems the STM32 is reporting as unhealthy."""
+        return [n for bit, n in HEALTH_NAMES.items() if self.health & bit]
+
+    # ---- parsing --------------------------------------------------------
+
+    @staticmethod
+    def policy_block(raw: bytes):
+        """
+        The 50 observation floats, straight out of the buffer.
+
+        Prefer this to parse() in the control loop: it copies nothing and skips
+        building a dataclass, which at 1 kHz is the difference between a few
+        percent of a Pi core and a noticeable one. Use POLICY_INDEX to pick out
+        a field:
+
+            blk = NexusState.policy_block(raw)
+            off, n = POLICY_INDEX["joint_pos"]
+            q = blk[off:off + n]
+
+        Returns a numpy view if numpy is present, otherwise a tuple.
+        """
+        try:
+            import numpy as np
+            return np.frombuffer(raw, dtype="<f4",
+                                 count=POLICY_COUNT, offset=POLICY_OFFSET)
+        except ImportError:
+            return struct.unpack_from(f"<{POLICY_COUNT}f", raw, POLICY_OFFSET)
+
+    @classmethod
+    def parse(cls, raw: bytes) -> Optional["NexusState"]:
+        """Parse exactly one packet. Returns None if it fails any check."""
+        if len(raw) != STATE_SIZE:
+            return None
+
+        f = struct.unpack(STATE_FORMAT, raw)
+        if f[0] != SYNC or f[1] != MSG_STATE or f[2] != PROTO_VERSION:
+            return None
+        if f[-1] != crc16(raw[:-2]):
+            return None
+
+        i = 5
+        def take(n):
+            nonlocal i
+            out = f[i:i + n]
+            i += n
+            return list(out)
+
+        return cls(
+            seq=f[3],
+            timestamp_us=f[4],
+            pelvis_z=take(1)[0],
+            quat=take(4),
+            gyro=take(3),
+            vel_hdg=take(3),
+            joint_pos=take(NUM_JOINTS),
+            joint_vel=take(NUM_JOINTS),
+            spring_angle=take(NUM_ENCODERS),
+            ref_angle=take(NUM_JOINTS),
+            contact=take(NUM_CONTACTS),
+            foot_z=take(2),
+            phase=take(1)[0],
+            imu_quat=take(4),
+            imu_accel=take(3),
+            imu_gyro=take(3),
+            imu_seq=take(1)[0],
+            act_torque=take(NUM_JOINTS),
+            act_error=take(NUM_JOINTS),
+            act_target=take(NUM_JOINTS),
+            fused_pos=take(3),
+            fused_vel=take(3),
+            fused_gyro_bias=take(3),
+            fused_accel_bias=take(3),
+            overruns=take(1)[0],
+            usb_dropped=take(1)[0],
+            can_dropped=take(2),
+            loop_us_max=take(1)[0],
+            enc_stalls=take(1)[0],
+            can_bus_off=take(2),
+            stream_flags=take(1)[0],
+            reserved0=take(1)[0],
+            contact_ticks=take(2),
+            act_state=take(NUM_JOINTS),
+            act_flags=take(NUM_JOINTS),
+            enc_valid=take(1)[0],
+            contacts=take(1)[0],
+            fused_valid=take(1)[0],
+            health=take(1)[0],
+            fk_valid=take(1)[0],
+            safety_state=take(1)[0],
+            gains_seq=take(1)[0],
+            reserved1=take(1)[0],
+        )
+
+    @classmethod
+    def find_and_parse(cls, buf: bytearray) -> Tuple[Optional["NexusState"], bytearray]:
+        """
+        Pull the first valid packet out of a byte stream.
+
+        Returns (packet_or_None, remaining_buffer). USB is lossless and
+        packet-framed, so resync is rare - but a reconnect mid-packet will
+        leave junk, and scanning for the sync word recovers from it.
+        """
+        start = 0
+        limit = len(buf) - STATE_SIZE
+
+        while start <= limit:
+            # bytearray.find is C-speed; scanning for the sync word a byte at a
+            # time in Python costs more than parsing the packet does.
+            start = buf.find(SYNC_BYTES, start, limit + 2)
+            if start < 0:
+                break
+
+            pkt = cls.parse(bytes(buf[start:start + STATE_SIZE]))
+            if pkt is not None:
+                return pkt, buf[start + STATE_SIZE:]
+
+            # Sync word but no valid packet: either payload bytes that happened
+            # to look like sync, or a genuinely corrupt frame. Either way the
+            # next candidate is one byte along, never STATE_SIZE along.
+            start += 1
+
+        # Keep the tail that might be the start of a packet still in flight.
+        keep = max(0, len(buf) - STATE_SIZE)
+        return None, buf[keep:]
+
+
+@dataclass
+class NexusCommand:
+    """Position command to the STM32. Send at ~250 Hz."""
+
+    seq: int = 0
+    residual: Optional[List[float]] = None     # turns, added to ref_angle
+    flags: int = 0
+
+    def pack(self) -> bytes:
+        pos = self.residual if self.residual is not None else [0.0] * NUM_JOINTS
+        if len(pos) != NUM_JOINTS:
+            raise ValueError(f"residual must have {NUM_JOINTS} entries")
+
+        body = struct.pack(
+            COMMAND_FORMAT[:-1],       # everything except the trailing crc
+            SYNC, MSG_COMMAND, PROTO_VERSION, self.seq, *pos, self.flags,
+        )
+        return body + struct.pack("<H", crc16(body))
+
+
+GAINS_FORMAT = (
+    "<"
+    "H"      # sync
+    "B"      # msg_id
+    "B"      # version
+    "I"      # seq             echoed back in the state packet as gains_seq
+    "10f"     # pos_gain        (turn/s) per turn
+    "10f"     # vel_gain        Nm per (turn/s)
+    "10f"     # vel_int_gain    Nm per turn
+    "H"      # crc
+)
+GAINS_SIZE = struct.calcsize(GAINS_FORMAT)
+
+
+@dataclass
+class NexusGains:
+    """
+    Drive gains, Pi -> board. Sent between runs, never in a control loop.
+
+    The board writes these to every ODrive over CAN and re-sends them on each
+    arm, so a drive that reboots comes back with the gains being tuned rather
+    than its own saved ones. It REFUSES them while the robot is driving: watch
+    `gains_seq` in the state packet, which only moves when a message was
+    applied.
+
+    A negative gain means "leave that drive's saved value alone".
+    """
+
+    seq: int = 0
+    pos_gain: Optional[List[float]] = None
+    vel_gain: Optional[List[float]] = None
+    vel_int_gain: Optional[List[float]] = None
+
+    def pack(self) -> bytes:
+        def col(v, name):
+            out = list(v) if v is not None else [-1.0] * NUM_JOINTS
+            if len(out) != NUM_JOINTS:
+                raise ValueError(f"{name} must have {NUM_JOINTS} entries")
+            return out
+
+        body = struct.pack(
+            GAINS_FORMAT[:-1],
+            SYNC, MSG_GAINS, PROTO_VERSION, self.seq,
+            *col(self.pos_gain, "pos_gain"),
+            *col(self.vel_gain, "vel_gain"),
+            *col(self.vel_int_gain, "vel_int_gain"),
+        )
+        return body + struct.pack("<H", crc16(body))
+
+
+if __name__ == "__main__":
+    print(f"state packet   : {STATE_SIZE} bytes")
+    print(f"command packet : {COMMAND_SIZE} bytes")
+    print(f"at 1 kHz       : {STATE_SIZE * 1000 / 1024:.1f} KiB/s up")

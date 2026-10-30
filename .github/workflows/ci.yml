@@ -1,0 +1,118 @@
+# Two jobs, because they catch different things.
+#
+#   python   the protocol, conversion and rerun tests on a plain runner - fast,
+#            and the same tests run on a laptop with no ROS
+#   colcon   the real build in ROS 2 Jazzy: message generation, package
+#            metadata, install layout, the generated message classes against
+#            convert.py, and every launch file parsed
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest pyserial numpy pyyaml rerun-sdk
+      - name: zeus_link tests
+        run: python -m pytest zeus_link/test -q
+      - name: zeus_rerun tests
+        run: python -m pytest zeus_rerun/test -q
+      - name: zeus_description tests (zeus.urdf matches the export + zeus_model.yaml)
+        run: python -m pytest zeus_description/test -q
+      - name: mukesh_description tests (mukesh.urdf matches the export + its YAML)
+        run: python -m pytest mukesh_description/test -q
+      - name: policy tests (numpy runtime vs SB3 golden, observation adapter, guards)
+        run: python -m pytest zeus_control_interface/test -q
+
+  colcon:
+    runs-on: ubuntu-24.04
+    container: ros:jazzy
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          apt-get update
+          rosdep update --rosdistro jazzy
+          rosdep install --from-paths . --ignore-src -y --rosdistro jazzy
+          apt-get install -y python3-pytest
+
+      - name: Build
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          colcon build --event-handlers console_cohesion+
+
+      - name: Test
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source install/setup.bash
+          colcon test --packages-select zeus_link --event-handlers console_cohesion+
+          colcon test-result --verbose
+
+      - name: Launch files and model load
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source install/setup.bash
+          check_urdf install/zeus_description/share/zeus_description/urdf/zeus.urdf
+          check_urdf install/mukesh_description/share/mukesh_description/urdf/mukesh.urdf
+          ros2 launch zeus_bringup robot.launch.py --show-args
+          ros2 launch zeus_bringup walk.launch.py --show-args
+          ros2 launch zeus_description display.launch.py --show-args
+          ros2 interface show zeus_msgs/msg/NexusState > /dev/null
+          ros2 interface show zeus_msgs/msg/NexusCommand > /dev/null
+          ros2 pkg executables zeus_link
+          ros2 pkg executables zeus_rerun
+          # rerun_node must follow an activated venv; the robot nodes must not
+          head -1 install/zeus_rerun/lib/zeus_rerun/rerun_node | grep -qx '#!/usr/bin/env python3'
+          head -1 install/zeus_link/lib/zeus_link/link_node | grep -qx '#!/usr/bin/python3'
+
+      - name: End to end against the fake board
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source install/setup.bash
+          python3 zeus_link/test/e2e_fake_board.py
+          python3 zeus_control_interface/test/e2e_policy.py
+
+      - name: Real generated messages accept what convert.py produces
+        # The pytest version of this can skip; this one cannot.
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source install/setup.bash
+          python3 - <<'EOF'
+          import math
+          from zeus_msgs.msg import NexusCommand, NexusState
+          from zeus_link.convert import fill_state_msg, policy_block, STATE_FIELDS
+          from zeus_link.nexus_proto import (BOLTED_JOINT_NAMES, NUM_JOINTS,
+                                             POLICY_COUNT, NexusState as Packet)
+          from zeus_link.synthetic import state_packet
+
+          pkt = Packet.parse(state_packet(seq=7))
+          msg = NexusState()
+          fill_state_msg(msg, pkt)
+          assert msg.seq == 7
+          assert math.isnan(float(msg.foot_z[1]))
+          assert policy_block(msg).size == POLICY_COUNT
+          assert len(STATE_FIELDS) == len(NexusState.get_fields_and_field_types()) - 1
+
+          # The generated message class has to agree with the protocol about
+          # how many joints there are - the sizes are baked into it at build
+          # time, so a stale .msg shows up here and nowhere else.
+          assert len(msg.joint_pos) == NUM_JOINTS, len(msg.joint_pos)
+
+          cmd = NexusCommand()
+          cmd.residual_rad = [0.0] * NUM_JOINTS
+          cmd.enable = True
+          print(f"real zeus_msgs classes accept convert.py output: "
+                f"{len(STATE_FIELDS)} fields, {NUM_JOINTS} joints "
+                f"+ {len(BOLTED_JOINT_NAMES)} bolted, policy block {POLICY_COUNT}")
+          EOF

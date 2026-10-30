@@ -1,0 +1,82 @@
+{
+ "run": "m1_mukesh",
+ "variant": "mukesh",
+ "policy_file": "final.zip",
+ "num_timesteps": 3014656,
+ "deployed_speed_m_s": 0.3,
+ "gait_period_s": 1.5645662034847476,
+ "network": "MLP 183-256-256-128-10, ELU, deterministic mean",
+ "observation": "61 values x 3 frames at 50 Hz, oldest first",
+ "sha256": {
+  "final.zip": "b677d90795aeaeac078869ec7020826b94f8da58687daa942711017ebea4c486",
+  "final_vecnorm.pkl": "4c1eee02354aa4658efd88cd50c5a0e4de61550f951f8d095522f22d9c082ef3",
+  "gait_library.npz": "75e07ca9ec400e8c22abb1030e22d92e6b607d1b58c8138325ef8507a0a6622d",
+  "zeus.xml": "d39bfe899a1254aae8f9e12d50820598b882c0e2bc191d71272471aeaabf359f",
+  "mukesh.urdf": "6457caaed8d4571bb5b4a72182dcb100023a053dbca8415affcd15150d16ecf3"
+ },
+ "exported": "2026-10-31",
+ "training_config": {
+  "lib": "variants/mukesh/libs/M1/gait_library.npz",
+  "run": "m1_mukesh",
+  "steps": 3000000,
+  "envs": 8,
+  "nsteps": 2048,
+  "vmin": 0.2,
+  "vmax": 0.5,
+  "resume": null,
+  "variant": "mukesh",
+  "W": {
+   "vel": 0.2,
+   "lat": 0.08,
+   "lean": 0.25,
+   "track": 0.15,
+   "height": 0.08,
+   "contact": 0.1,
+   "yaw": 0.06,
+   "rate": 0.6,
+   "acc": 0.25,
+   "mag": 0.1,
+   "torque": 0.04,
+   "collide": 0.5,
+   "clear": 0.04,
+   "spring": 0.3
+  },
+  "ACT_SCALE": [
+   0.25,
+   0.12,
+   0.25,
+   0.15,
+   0.15,
+   0.25,
+   0.12,
+   0.25,
+   0.15,
+   0.15
+  ],
+  "ACT_FC": 4.0,
+  "KP": [
+   150.0,
+   60.0,
+   150.0,
+   30.0,
+   30.0,
+   150.0,
+   60.0,
+   150.0,
+   30.0,
+   30.0
+  ],
+  "KD": [
+   12.0,
+   4.0,
+   12.0,
+   1.2,
+   1.2,
+   12.0,
+   4.0,
+   12.0,
+   1.2,
+   1.2
+  ]
+ }
+}
