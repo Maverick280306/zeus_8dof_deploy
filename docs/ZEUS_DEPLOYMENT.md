@@ -26,36 +26,60 @@ speed. This has not been fixed or retrained around. Do not treat this bundle
 as closed-loop-validated; it is the best policy currently trained for this
 8-DOF robot, not a policy that meets the lean spec.
 
-## KNOWN BLOCKER — wire protocol mismatch
+## The wire protocol blocker is RESOLVED
 
-This workspace's wire protocol (`zeus_link/zeus_link/nexus_proto.py`) is
-**hardcoded to protocol v10: 10 joints, 5 nodes per bus**, built for the
-Mukesh (ankle-roll) robot. The real 8-DOF Zeus hardware
-([zeus_description](../zeus_description)) has **8 joints, 4 nodes per bus**
-(`index = bus*4 + (node-1)`, no ankle roll) — this is protocol **v9**, per
-`firmware_handoff/FIRMWARE_CHANGES.md`'s own comparison table. The v9 Python
-source no longer exists in this repo (it was overwritten when the workspace
-moved to v10 for Mukesh, and this repo holds only one squashed commit with no
-earlier history to recover it from).
+This section recorded that the workspace spoke protocol v10 (ten joints, built
+for Mukesh) while the real hardware is v9 (eight joints, `index = bus*4 +
+(node-1)`), that the v9 Python "no longer exists in this repo… no earlier
+history to recover it from", and that reconstructing it from the v10 code was
+too risky to attempt without the real source to check against.
 
-**This means:** `zeus_link`, `zeus_msgs`, and the board-side `stm32_zeuss`
-firmware as they stand in this workspace will not talk to an 8-joint board.
-Byte-for-byte reconstructing v9 from the v10 code and the FIRMWARE_CHANGES.md
-table risked getting packet sizes or field layout wrong without the real
-source to check against, so it has **not** been attempted here. Rewriting the
-protocol back to an 8-joint v9 (or writing a translation shim) is a decision
-for whoever owns `zeus_link`/`stm32_zeuss`, not something this package
-silently assumes.
+**It did not have to be reconstructed.** The canonical copy has always lived in
+the firmware repo at `stm32_zeuss/pi/nexus_proto.py`, and that repo's
+`tools/check_proto.py` verifies it field by field against the C header. It was
+run against the v9 `link_proto.h` to confirm agreement *before* the file was
+restored here, so what this workspace carries is checked, not guessed.
 
-Everything **above the wire protocol is already joint-count-generic**:
-`policy_runtime.py` and `obs_adapter.py` size all internal arrays from
-`policy.npz`'s own `joint_names` (8 entries here), not a hardcoded constant.
-So the policy bundle itself is ready; only the transport is blocked.
+Restored to v9, all from sources that already existed:
 
-No `gait_ref.c/.h` firmware files were generated for this reason — the
-exporter's C template assumes 5 joints per leg including ankle roll
-(`SLOTS` in `export_policy.py`), which does not apply to this 8-joint robot,
-and there is no v9 firmware repo state to hand the table to.
+| | |
+|---|---|
+| `zeus_link/zeus_link/` | `nexus_proto.py`, `convert.py`, `synthetic.py`, `fake_board.py` |
+| `zeus_msgs/` | `NexusState.msg`, `NexusCommand.msg`, `SetGains.srv` |
+| tests | `test_proto.py`, `test_convert.py`, `test_msg_matches_proto.py` |
+
+426-byte state, 44-byte command, 106-byte gains, **44-float policy block** —
+which is exactly the observation `zeus_env.py` trains on, by its own docstring.
+
+**And the firmware is done.** `firmware_handoff/` now carries the real 8-DOF
+`gait_ref.c/.h` (0.30 m/s row, stride 1.857507 s, four columns) and a
+`FIRMWARE_CHANGES.md` describing what was changed rather than what is needed:
+the torque feedforward, the velocity feedforward from the gait table, the SEA
+pre-deflection, and commands at the 500 Hz `DT_PHYS` trains at.
+
+### Other things that were wrong and are fixed
+
+Found while doing the above. None of them would have crashed; all of them would
+have run the wrong robot.
+
+- **`policy_runtime.py` defaulted to `m1_mukesh_3M`** — the ten-joint bundle —
+  so the node would have loaded a policy whose action vector is two joints
+  longer than the board has drives. Now `z1_softland_tol05`.
+- **`setup.py` installed only `m1_mukesh_3M`**, so the 8-DOF policy never
+  reached the Pi's share directory at all.
+- **`robot.launch.py` loaded `mukesh_description/mukesh.urdf`**, giving
+  `robot_state_publisher` a model with two joints the board never reports.
+  `mukesh_description` has been removed and the dependency dropped.
+- **`gains.yaml` listed ten joints** and called the ankle 9:1. It is **15:1**,
+  confirmed on the robot and in the policy's own `zeus_model.py`.
+- **The observation table in `zeus_control_interface/README.md`** still
+  described the ten-joint block. `test_policy_readme.py` exists precisely to
+  catch that and did.
+- **The control-interface tests loaded the Mukesh bundle** and hardcoded `10`,
+  `61` and `0.2403` (the Mukesh IMU height; this robot's is 0.1274). They now
+  derive from the bundle, and one of them perturbed `q[7]` while asserting on
+  `right_knee_pitch` — index 7 on the ten-joint robot, `right_ankle_pitch`
+  here, so it had been passing for the wrong reason.
 
 ## Status
 

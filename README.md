@@ -1,11 +1,16 @@
 # Zeus — Raspberry Pi workspace
 
-> **Bringing up the Mukesh policy? Start at
-> [docs/MUKESH_DEPLOYMENT.md](docs/MUKESH_DEPLOYMENT.md).** This workspace is on
-> protocol v10 (ten joints) and needs the firmware changes in
-> [firmware_handoff/](firmware_handoff/FIRMWARE_CHANGES.md).
+> **Bringing the robot up? Start at
+> [docs/ZEUS_DEPLOYMENT.md](docs/ZEUS_DEPLOYMENT.md)**, then
+> [firmware_handoff/](firmware_handoff/FIRMWARE_CHANGES.md) for what the
+> firmware has already done about it.
+>
+> This workspace is on **protocol v9: 8 joints, 4 nodes a bus**, which is what
+> the real hardware has. It was briefly v10 for the ten-joint Mukesh robot —
+> [docs/MUKESH_DEPLOYMENT.md](docs/MUKESH_DEPLOYMENT.md) is that robot's record
+> and does not describe this one.
 
-Zeus is a 10-DOF biped. This ROS 2 Jazzy workspace is everything that runs on its
+Zeus is an 8-DOF biped. This ROS 2 Jazzy workspace is everything that runs on its
 Raspberry Pi — which, by design, is not very much.
 
 **The STM32 does the robot. The Pi does the policy.**
@@ -13,11 +18,11 @@ Raspberry Pi — which, by design, is not very much.
 ```
                 ┌──────────────────────────── STM32H7 (stm32_zeuss) ───────────────────────────┐
  BNO085 IMU ────┤                                                                              │
- 4 spring enc ──┤  1 kHz loop: sensors → state estimator → stored gait → safety → 10 ODrives   │
+ 4 spring enc ──┤  1 kHz loop: sensors → state estimator → stored gait → safety → 8 ODrives    │
  2 foot switch ─┤                                                                              │
  CAN × 2 ───────┤                                                                              │
                 └──────────────┬───────────────────────────────────────────────▲───────────────┘
-                   state, 478 B│ every 1 ms                    residual, 52 B  │ ~250 Hz
+                   state, 426 B│ every 1 ms                    residual, 44 B  │ ~250 Hz
                         USB OTG HS                                             │
                 ┌──────────────▼───────────────────── Raspberry Pi ────────────┴───────────────┐
                 │ zeus_link   link_node ──► /zeus/state ──► your RL policy ──► /zeus/command    │
@@ -40,6 +45,7 @@ answering stops the robot. Nothing on the Pi touches a CAN bus, a GPIO pin or a
 sensor.
 
 - [The contract with the STM32](#the-contract-with-the-stm32)
+- [What the STM32 sends the drives](#what-the-stm32-sends-the-drives)
 - [Joint map](#joint-map)
 - [Packages](#packages)
 - [Setting up the Pi](#setting-up-the-pi)
@@ -62,7 +68,7 @@ that copy against the C header.
 | | STM32 → Pi | Pi → STM32 |
 |---|---|---|
 | **what** | state: estimate, joints, reference, sensors, health | residual per joint + enable flag |
-| **size** | 478 bytes | 52 bytes |
+| **size** | 426 bytes | 44 bytes |
 | **rate** | 1000 Hz | ~250 Hz (the STM32 interpolates between commands) |
 | **units** | SI, radians on the output shaft | turns on the wire, **radians in ROS** |
 
@@ -89,6 +95,98 @@ What the board does with commands — worth knowing before anything moves:
    lets a restarted `link_node`, counting from 0, re-arm a board that has been
    running for hours. (Firmware before the `s_seq_valid` fix in stm32_zeuss
    refused it until the STM32 was rebooted.)
+
+## What the STM32 sends the drives
+
+Your residual does not reach a motor. It reaches **one field of one CAN frame**,
+and this is the rest of that frame — written down because three of the numbers
+in it come from the gait the policy trained on, and getting their units wrong is
+not a tuning problem.
+
+Per drive, every **2 ms (500 Hz)**, the board sends ODrive CANSimple
+`Set_Input_Pos` (`cmd_id 0x00C`, so `arbitration_id = node_id << 5 | 0x00C`),
+8 data bytes, little-endian:
+
+| bytes | field | wire type | units | what the firmware puts there |
+|---|---|---|---|---|
+| 0–3 | `Input_Pos` | float32 | turns of **the shaft that drive's encoder is on** | `ref_angle + residual − tau/K`, after safety and the interpolator |
+| 4–5 | `Vel_FF` | int16, 0.001 turns/s | turns/s, same shaft | `g_gait_vel` at the current phase |
+| 6–7 | `Torque_FF` | int16, 0.001 Nm | **MOTOR** Nm | `g_gait_tau` at the current phase **÷ gear ratio** |
+
+Both int16 fields saturate at ±32.767 and are **clamped before the cast**,
+because an out-of-range float cast to int16 in C wraps sign — maximum forward
+becomes maximum reverse.
+
+**Position** is `ref_angle + residual`, bounded by `safety.c`, then interpolated
+across the four board ticks following each command so the drive walks a ramp
+rather than a step. The drive is told the ramp's midpoint and its endpoint.
+
+**Why 500 Hz and not 1 kHz.** It is the rate `zeus_env.py` trained at
+(`DT_PHYS = 0.002`). The board's loop is still 1 kHz; only this message is
+halved, and each drive closes its own position loop at 8 kHz off the last
+target it received either way. It is also the largest single source of CAN
+traffic.
+
+### The spring pre-deflection
+
+Hip pitch and knee pitch are series-elastic. **The ODrive holds the motor side
+and the limb is behind the spring**, so under torque the spring winds up and the
+limb ends up short of where the motor was sent:
+
+```
+limb = motor + tau / K        =>        motor = ref − tau / K
+```
+
+So those two joints are commanded to `ref − tau/K`, with `K = 3437.75 Nm/rad`,
+clamped to the spring's ±1.7° of travel. `zeus_env.py` applies the same
+correction, which is why the board must. The other two joints per leg are rigid
+and get no correction.
+
+**`ref_angle` in the state packet is the PURE gait**, not the pre-deflected
+value. The policy reads it as part of its observation and `rl_policy_node`
+rejects a `ref_angle` more than 1° from its own copy, so the board keeps the two
+separate: the packet gets the gait, the drives get the gait minus the wind-up.
+
+### Units, which is where this goes wrong
+
+`Input_Pos` and `Vel_FF` are **turns of whatever shaft that drive's encoder sits
+on**, and it is not the same shaft on every joint. `Torque_FF` is **always motor
+torque**.
+
+| joint | gear | encoder on |
+|---|---|---|
+| hip pitch, knee pitch | 47:1 | load (output) |
+| hip roll | 26:1 | load — assumed, never measured |
+| ankle pitch | **15:1** | **MOTOR** |
+
+The gait tables are all at the **output**, so `Torque_FF` is `g_gait_tau / N`
+for every joint — peaks are under 1 Nm, not the tens of Nm in the table. The
+gain conversion follows the same rule, and it is why `vel_gain` is nothing like
+the output-Nm figure:
+
+```
+pos_gain = KP / KD             always — a ratio of encoder units, gearbox cancels
+vel_gain = KD · 2π / N         encoder on the load
+vel_gain = KD · 2π / N²        encoder on the MOTOR  (the ankle)
+```
+
+| class | KP | KD | `pos_gain` | `vel_gain` |
+|---|---:|---:|---:|---:|
+| hip pitch, knee | 150 | 12 | 12.5 | **1.6042** |
+| hip roll | 60 | 4 | 15.0 | **0.9666** |
+| ankle pitch | 30 | 1.2 | 25.0 | **0.0335** |
+
+`vel_integrator_gain` is **0** — training had no integrator at all.
+`zeus_bringup/config/gains.yaml` still holds the bench leg's values; the table
+above is what they should become once which shaft each encoder sits on has been
+confirmed at the drives.
+
+### What a zero residual does
+
+Nothing is disabled by a residual of zero. The board still plays the gait, still
+pre-deflects the springs, and still sends the trained velocity and torque
+feedforward. **A policy sending zeros walks the stored gait with full
+feedforward** — which is the right first run.
 
 ## Joint map
 
@@ -119,12 +217,14 @@ from the model — the CAD export bolts both hips straight to the torso.
 
 What that means around the workspace:
 
-- **Packets carry 10 joints**, and the wire format is versioned with it. The Pi
-  and the board must be flashed and updated together — protocol **v10**, and
+- **Packets carry 8 joints**, and the wire format is versioned with it. The Pi
+  and the board must be flashed and updated together — protocol **v9**, and
   either side rejects the other's version rather than misreading it.
-- **The URDF is [mukesh_description](mukesh_description/README.md)**, and it has
-  no waist joints, so `/joint_states` no longer carries
-  `waist_pitch` and `waist_roll`. `BOLTED_JOINT_NAMES` is empty; it existed to
+- **The URDF is [zeus_description](zeus_description/README.md)** — the real
+  8-joint robot, no waist and no ankle roll. (`mukesh_description` was the
+  ten-joint build; it has been removed, and the launch files no longer load it.)
+  `/joint_states` does not carry `waist_pitch` or `waist_roll`.
+  `BOLTED_JOINT_NAMES` is empty; it existed to
   stand in for joints the URDF had but nothing drove, and there are none.
 - **The estimator's joint vector is six per leg** — four drives plus the two
   spring deflections. It was eight, the extra two being the waist, kept in the
@@ -140,14 +240,13 @@ the tag **`waist-10-actuators`** is the last commit with ten actuators.
 ## Packages
 
 ```
-zeus_26/
+zeus_8dof_deploy/
 ├── zeus/                    metapackage
 ├── zeus_msgs/               NexusState.msg, NexusCommand.msg
 ├── zeus_link/               the USB link: protocol, reader, link_node, passthrough, link_check
 ├── zeus_control_interface/  ← YOUR RL POLICY goes here (rl_policy_node.py)
 ├── zeus_rerun/              live plots and 3D in Rerun, from ROS or straight off serial
-├── mukesh_description/      URDF of the ankle-roll build: the robot the policy trained on
-├── zeus_description/        URDF of the 8-joint build, and clean_urdf.py
+├── zeus_description/        URDF of the 8-joint robot, and clean_urdf.py
 └── zeus_bringup/            robot.launch.py, walk.launch.py, link config, udev rule
 ```
 
@@ -157,8 +256,7 @@ zeus_26/
 | [zeus_link](zeus_link/README.md) | ament_python | The only thing that opens the serial port |
 | [zeus_control_interface](zeus_control_interface/README.md) | ament_python | The RL policy |
 | [zeus_rerun](zeus_rerun/README.md) | ament_python | Visualisation on your laptop |
-| [mukesh_description](mukesh_description/README.md) | ament_cmake | Robot model for TF, RViz and Rerun |
-| [zeus_description](zeus_description/README.md) | ament_cmake | The 8-joint model, and the URDF generator |
+| [zeus_description](zeus_description/README.md) | ament_cmake | The 8-joint model the policy trained on, for TF, RViz and Rerun |
 | [zeus_bringup](zeus_bringup/README.md) | ament_cmake | How to start it all |
 
 ### What was removed, and why
@@ -313,7 +411,7 @@ ROS, in three steps. Each step proves the one before it.
 | **USB user port** | **this link** — USB OTG HS, 480 Mbit/s. Plug it into the Pi |
 
 The board is a USB device and the Pi is the host. On the Pi it becomes a serial
-port, `/dev/ttyACM*`, USB ID `0483:5740`, carrying binary packets: 478 bytes of
+port, `/dev/ttyACM*`, USB ID `0483:5740`, carrying binary packets: 426 bytes of
 state every millisecond out, commands in.
 
 **Which firmware sends packets:** `NEXUS_MODE_ROBOT` always, and
@@ -488,7 +586,8 @@ gains there — a stiff position loop fights the spring.
 ## Where the RL policy goes
 
 **`zeus_control_interface/zeus_control_interface/rl_policy_node.py`** runs the
-trained `m1_mukesh` policy, and is what `walk.launch.py policy:=rl` starts. See
+trained `z1_softland_tol05` policy, and is what `walk.launch.py policy:=rl`
+starts. See
 [zeus_control_interface/README.md](zeus_control_interface/README.md).
 
 ---

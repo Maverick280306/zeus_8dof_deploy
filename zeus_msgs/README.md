@@ -4,7 +4,7 @@ The two messages on the link.
 
 | message | topic | mirrors |
 |---|---|---|
-| [NexusState](msg/NexusState.msg) | `/zeus/state` | the STM32's 478-byte state packet, field for field |
+| [NexusState](msg/NexusState.msg) | `/zeus/state` | the STM32's 444-byte state packet, field for field |
 | [NexusCommand](msg/NexusCommand.msg) | `/zeus/command` | the 52-byte command, in radians instead of turns |
 
 Field names in `NexusState` are identical to `zeus_link.nexus_proto.NexusState`,

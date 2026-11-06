@@ -1,6 +1,6 @@
 # zeus_control_interface
 
-**Where the RL policy lives.** This package runs `m1_mukesh` (3 M steps) on the
+**Where the RL policy lives.** This package runs `z1_softland_tol05` (6 M steps) on the
 robot. Start with [docs/MUKESH_DEPLOYMENT.md](../docs/MUKESH_DEPLOYMENT.md).
 
 ```
@@ -10,7 +10,8 @@ zeus_control_interface/
 │   ├── obs_adapter.py          board state -> training observation; guards; filter
 │   ├── policy_runtime.py       the network in plain numpy, no torch on the Pi
 │   └── hardcoded_actuator_test_node.py   from the old ros2_control stack, unused
-├── policy/m1_mukesh_3M/        policy.npz, golden.npz, manifest.json, source/
+├── policy/z1_softland_tol05/   policy.npz, golden.npz, manifest.json, source/
+├── policy/m1_mukesh_3M/        the ten-joint robot's bundle, kept as a record
 ├── scripts/export_policy.py    trained run -> bundle + firmware gait table
 ├── sim_check/                  deployed code in the loop with MuJoCo, and results
 └── test/                       runs on any machine; e2e_policy.py needs ROS
@@ -31,7 +32,7 @@ robot rather than a small correction.
 
 ## The observation
 
-`zeus_link.convert.policy_block(msg)` gives the 50 values of the packet's policy
+`zeus_link.convert.policy_block(msg)` gives the 44 values of the packet's policy
 block as one `np.float32` array, in this order:
 
 | slice | field | size | units |
@@ -40,13 +41,13 @@ block as one `np.float32` array, in this order:
 | 1–4 | `quat` | 4 | w, x, y, z — body → world |
 | 5–7 | `gyro` | 3 | rad/s, body frame |
 | 8–10 | `vel_hdg` | 3 | m/s: lateral, forward, vertical, **at the IMU** likewise |
-| 11–20 | `joint_pos` | 10 | rad, output side |
-| 21–30 | `joint_vel` | 10 | rad/s |
-| 31–34 | `spring_angle` | 4 | rad, spring deflection |
-| 35–44 | `ref_angle` | 10 | rad, the stored gait right now |
-| 45–46 | `contact` | 2 | 0/1: left, right (one switch per foot) |
-| 47–48 | `foot_z` | 2 | m: right, left — may be NaN |
-| 49 | `phase` | 1 | 0..1 stride clock |
+| 11–18 | `joint_pos` | 8 | rad, output side |
+| 19–26 | `joint_vel` | 8 | rad/s |
+| 27–30 | `spring_angle` | 4 | rad, spring deflection |
+| 31–38 | `ref_angle` | 8 | rad, the stored gait right now |
+| 39–40 | `contact` | 2 | 0/1: left, right (one switch per foot) |
+| 41–42 | `foot_z` | 2 | m: right, left — may be NaN |
+| 43 | `phase` | 1 | 0..1 stride clock |
 
 Do not copy these numbers into code. `nexus_proto.POLICY_INDEX` gives each
 field's offset and length by name, and `test_this_table_matches_the_protocol`
@@ -61,7 +62,7 @@ corrected to the hip centre and the starting yaw removed, plus the previous acti
 normaliser.
 
 Joint arrays follow the [joint map](../README.md#joint-map). An idle command is
-`[0.0] * 10`.
+`[0.0] * 8`.
 
 ## Guards
 

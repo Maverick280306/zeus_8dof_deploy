@@ -17,8 +17,15 @@ from zeus_control_interface.obs_adapter import (Guards, MAX_HELD_FOOT_FRAMES, Ob
 from zeus_control_interface.policy_runtime import Policy
 from zeus_link import nexus_proto as P
 
-BUNDLE = os.path.join(os.path.dirname(__file__), "..", "policy", "m1_mukesh_3M")
+BUNDLE = os.path.join(os.path.dirname(__file__), "..", "policy", "z1_softland_tol05")
 IX = P.POLICY_INDEX
+
+# Every joint count below comes from the protocol, never a literal. These
+# fixtures were written with a hardcoded 10 for the ankle-roll robot, which
+# passed only while the protocol was also ten joints - so the day the workspace
+# went back to the real 8-joint hardware they broke, in the adapter rather than
+# in an assertion, with a numpy broadcast error. The modules under test size
+# everything from the policy bundle's own joint_names; the tests should too.
 
 
 @pytest.fixture(scope="module")
@@ -30,7 +37,8 @@ def state(policy, **over):
     phase = over.pop("phase", 0.1)
     v = dict(seq=0, pelvis_z=0.93, quat=[1.0, 0.0, 0.0, 0.0], gyro=[0.0, 0.0, 0.0],
              vel_hdg=[0.0, 0.3, 0.0],
-             joint_pos=list(policy.gait.ref(phase)), joint_vel=[0.02 * i for i in range(10)],
+             joint_pos=list(policy.gait.ref(phase)),
+             joint_vel=[0.02 * i for i in range(P.NUM_JOINTS)],
              spring_angle=[1e-3, 2e-3, 3e-3, 4e-3], ref_angle=list(policy.gait.ref(phase)),
              contact=[1.0, 0.0], foot_z=[0.05, 0.0], phase=phase, stream_flags=1, fused_valid=2,
              fk_valid=3, health=0)
@@ -40,30 +48,33 @@ def state(policy, **over):
 
 def test_frame_is_the_packet_block_plus_prev_action_and_speed(policy):
     a = ObsAdapter(policy)
-    a.a_prev = np.arange(10) * 0.1
+    a.a_prev = np.arange(P.NUM_JOINTS) * 0.1
     f = a.frame(state(policy))
-    assert f.size == 61
+    assert f.size == policy.frame_size
     o, n = IX["joint_vel"]
-    assert f[o:o + n] == pytest.approx([0.02 * i for i in range(10)])
+    assert f[o:o + n] == pytest.approx([0.02 * i for i in range(P.NUM_JOINTS)])
     o, n = IX["contact"]
     assert list(f[o:o + n]) == [1.0, 0.0]            # left, then right
     o, n = IX["foot_z"]
     assert list(f[o:o + n]) == [0.05, 0.0]           # right, then left
     assert f[IX["phase"][0]] == pytest.approx(0.1)
-    assert f[P.POLICY_COUNT:P.POLICY_COUNT + 10] == pytest.approx(a.a_prev)
+    assert f[P.POLICY_COUNT:P.POLICY_COUNT + P.NUM_JOINTS] == pytest.approx(a.a_prev)
     assert f[-1] == pytest.approx(policy.gait.speed)
 
 
 def test_height_is_the_hips_not_the_imu(policy):
-    # IMU 0.93 m up, upright, IMU 0.2403 m above the hips, lower foot at 0: the
+    # IMU 0.93 m up, upright, the IMU imu_in_base[2] above the hips, lower foot
+    # at 0: the
     # network must read 0.6897. Left alone it sees a robot 0.24 m too tall.
     f = ObsAdapter(policy).frame(state(policy))
-    assert f[IX["pelvis_z"][0]] == pytest.approx(0.93 - 0.2403, abs=1e-4)
+    dz = float(policy.imu_in_base[2])
+    assert f[IX["pelvis_z"][0]] == pytest.approx(0.93 - dz, abs=1e-4)
 
 
 def test_height_is_measured_from_the_lower_foot(policy):
     f = ObsAdapter(policy).frame(state(policy, foot_z=[0.05, 0.02]))
-    assert f[IX["pelvis_z"][0]] == pytest.approx(0.93 - 0.2403 - 0.02, abs=1e-4)
+    dz = float(policy.imu_in_base[2])
+    assert f[IX["pelvis_z"][0]] == pytest.approx(0.93 - dz - 0.02, abs=1e-4)
 
 
 def test_torso_pitch_rate_is_not_forward_speed(policy):
@@ -109,24 +120,25 @@ def test_short_foot_dropout_holds_then_gives_up(policy):
 
 def test_garbage_state_is_refused_not_passed_on(policy):
     assert ObsAdapter(policy).frame(state(policy, quat=[0.0, 0.0, 0.0, 0.0])) is None
-    bad = [float("nan")] * 10
+    bad = [float("nan")] * P.NUM_JOINTS
     assert ObsAdapter(policy).frame(state(policy, joint_pos=bad)) is None
 
 
 def test_history_is_oldest_first_and_starts_full(policy):
     a = ObsAdapter(policy)
-    f = np.arange(61.0)
+    f = np.arange(float(policy.frame_size))
     s = a.stack(f)
-    assert s.size == 183 and (s[:61] == f).all() and (s[122:] == f).all()
+    n = policy.frame_size
+    assert s.size == n * policy.hist and (s[:n] == f).all() and (s[2 * n:] == f).all()
     s = a.stack(f + 1)
-    assert (s[:61] == f).all() and (s[122:] == f + 1).all()
+    assert (s[:n] == f).all() and (s[2 * n:] == f + 1).all()
 
 
 def test_filter_has_the_training_time_constant(policy):
     # A step reaches 1 - 1/e of its value in 1 / (2 pi fc) seconds, whatever the
     # rate. Run at a different rate than training and the constant must not move.
     f = ResidualFilter(policy, 250.0)
-    f.command(np.ones(10))
+    f.command(np.ones(P.NUM_JOINTS))
     ticks = int(round(250.0 / (2 * math.pi * policy.act_fc)))
     for _ in range(ticks):
         v = f.tick()
@@ -178,14 +190,17 @@ def test_a_leg_away_from_the_reference_is_refused(policy):
     # gains allow. It is the leg-through-the-stand failure.
     g = Guards(policy)
     g.phase_rate = 1.0 / policy.gait.period
+    # By NAME, not by index: 7 was right_knee_pitch on the ten-joint robot and
+    # is right_ankle_pitch on this one, so the literal perturbed a joint the
+    # assertion did not name and the test still passed for the wrong reason.
     q = list(policy.gait.ref(0.1))
-    q[7] += math.radians(8.0)
+    q[P.JOINT_INDEX["right_knee_pitch"]] += math.radians(8.0)
     why = g.engage_blockers(state(policy, joint_pos=q), lambda m: [])
     assert any("right_knee_pitch" in w and "reference pose" in w for w in why)
 
 
 def test_a_clock_at_the_wrong_rate_is_refused(policy):
-    # The old GAIT_CYCLE_S was 1.26 s, this stride 1.565 s. The table can be right
+    # The old GAIT_CYCLE_S was 1.26 s, this stride 1.858 s. The table can be right
     # and still play a quarter too fast.
     g = Guards(policy)
     dp = 0.5 / 1.26

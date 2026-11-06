@@ -12,8 +12,11 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        ('share/' + package_name + '/policy/m1_mukesh_3M',
-            glob('policy/m1_mukesh_3M/*.*')),
+        # Only the deployed bundle is installed. m1_mukesh_3M stays in the
+        # source tree as the ten-joint robot's record, but shipping it to the
+        # Pi is dead weight and an invitation to load the wrong robot.
+        ('share/' + package_name + '/policy/z1_softland_tol05',
+            glob('policy/z1_softland_tol05/*.*')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

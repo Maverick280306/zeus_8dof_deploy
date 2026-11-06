@@ -21,21 +21,33 @@ Both repos push **directly to `main`**. Do not create branches.
 
 ## The hardware, concretely
 
-- **10 actuated joints**, 5 per leg: hip pitch, hip roll, knee pitch, ankle
-  pitch, ankle roll (the Mukesh build, `mukesh_description`). **No waist at all** — both hips bolt straight to the torso, so it is
-  absent from the model too, not merely undriven. Driven by **ODrive S1** over
-  **CAN-FD**, two buses (FDCAN1 = left leg, FDCAN2 = right).
+- **8 actuated joints**, 4 per leg: hip pitch, hip roll, knee pitch, ankle
+  pitch (`zeus_description`). **No waist and no ankle roll** — both hips bolt
+  straight to the torso, so the waist is absent from the model too, not merely
+  undriven. Driven by **ODrive S1** over **CAN-FD**, two buses (FDCAN1 = left
+  leg, FDCAN2 = right).
 - The estimator's joint vector is **six per leg**: four drives plus the two
   spring deflections (`ZEUS_KIN_NQ`).
-- **Joint index = `bus * 5 + (node - 1)`.** This mapping is the single source of
+- **Gear ratios**: 47:1 hip pitch and knee, 26:1 hip roll, **15:1 ankle**. The
+  ankle's encoder is on the **motor** side of its gearbox, so its position,
+  velocity and torque are all in motor units. Confirmed on the robot and in the
+  policy's own `zeus_model.py`.
+- **Joint index = `bus * 4 + (node - 1)`.** This mapping is the single source of
   truth for every per-joint array in both packets. It is written down in
   `link_proto.h` as `NEXUS_J_*` and in `nexus_proto.py` as `JOINT_NAMES`, and
   `tools/check_proto.py` fails if they disagree.
 - **Series-elastic** hip pitch and knee pitch: the drive reports the motor side,
   an **AS5047P** encoder reports the spring's deflection, and the real joint
-  angle is their sum. Two SPI daisy chains, one per leg, one chip-select each.
-- **BNO085 IMU**, on the torso. The estimator uses its raw accel and gyro; its
-  own fused quaternion comes across too, but only for comparison.
+  angle is their sum. Four encoders share SPI1 with **one chip select each**
+  (PF1 / PD15 / PD14 / PF5) — they were two daisy chains until the order of the
+  returned words stopped being load-bearing.
+- **BNO085 IMU**, on the torso, SHTP over **USART2** (PD5/PD6) at 3 Mbaud. It
+  moved off USART1 because PA9 is not a free pin on that board: it carries
+  I2C_SDA to the TCPP03-M20 USB-C controller through solder bridge SB35, closed
+  by default. The estimator uses its raw accel and gyro; its own fused
+  quaternion comes across too, but only for comparison.
+- **Every pin into the STM32** — CAN, encoders, IMU, foot switches, supply
+  rails and the wiring traps — is in `stm32_zeuss/docs/PINOUT.md`.
 - **2 foot switches**, one per foot, at the **centre of the sole**. There were
   two per foot (toe and heel) until protocol v9.
 
@@ -48,12 +60,14 @@ USB CDC. The board is the device, the Pi is the host.
   data link.
 - udev gives it the stable name **`/dev/zeus_stm32`**
   (`zeus_bringup/config/99-zeus-stm32.rules`).
-- **Protocol v10.** State packet **478 bytes, board → Pi, every 1 ms**. Command
-  packet 52 bytes, Pi → board, ~250 Hz. Gains message 130 bytes. `stm32_zeuss` is
-  still at v9: `firmware_handoff/` has what it needs.
-- The state packet opens with a contiguous **50-float32 policy block** so the RL
+- **Protocol v9.** State packet **426 bytes, board → Pi, every 1 ms**. Command
+  packet 44 bytes, Pi → board, ~250 Hz. Gains message 106 bytes. The firmware is
+  at v9 and so is this workspace; `firmware_handoff/` records what was done.
+- The state packet opens with a contiguous **44-float32 policy block** so the RL
   policy can take one array with no per-field parsing
-  (`zeus_link.convert.policy_block`).
+  (`zeus_link.convert.policy_block`). This is exactly the observation
+  `zeus_env.py` trains on - its own docstring says "44 raw SI values, same
+  order".
 - Commands are a **residual**, not a target: `drive target = ref_angle +
   residual`. Zeros with `enable: true` walks the stored gait unaided.
 
@@ -73,7 +87,6 @@ bytes. Flash and deploy together.
 | `zeus_link` | the heart. `nexus_proto.py` (wire format), `nexus_link.py` (threaded reader), `link_node.py` (ROS node), `link_check`, `link_validate`, `fake_board`, `tuning.py` |
 | `zeus_bringup` | launch files, the `zeus` CLI (`scripts/zeus`), udev rule, config |
 | `zeus_description` | URDF generated from a Fusion 360 export by `scripts/clean_urdf.py` + `config/zeus_model.yaml`. **Edit the YAML, never the URDF.** |
-| `mukesh_description` | URDF of the ankle-roll build, the robot the policy trained on. **Edit the YAML, never the URDF.** |
 | `zeus_control_interface` | **where the RL policy lives**: `rl_policy_node.py`, `obs_adapter.py`, `policy_runtime.py`, `policy/`. Its README is the policy contract |
 | `zeus_rerun` | Rerun visualisation |
 | `zeus` | metapackage |
@@ -116,7 +129,6 @@ Tests, **the way CI runs them** — per directory, from the repo root:
 python3 -m pytest zeus_link/test -q          # the big one
 python3 -m pytest zeus_rerun/test -q         # skips without rerun-sdk; exit 5 is normal
 python3 -m pytest zeus_description/test -q
-python3 -m pytest mukesh_description/test -q
 python3 -m pytest zeus_control_interface/test -q
 colcon test && colcon test-result --verbose
 ```

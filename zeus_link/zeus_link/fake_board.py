@@ -6,7 +6,7 @@ A fake STM32 on a pseudo-terminal: run the whole Pi stack with no robot.
 
 Linux and macOS only (it needs a pty).
 
-It streams byte-exact state packets at 1 kHz - a smooth fake stride
+It streams byte-exact 444-byte state packets at 1 kHz - a smooth fake stride
 in joint_pos and ref_angle, the stride clock in phase - and parses every
 command packet that comes back, so everything between the USB port and your
 policy runs for real: link_node, the messages, QoS, the policy, rerun.
@@ -23,9 +23,6 @@ It models the parts of the firmware's safety.c the Pi has to get right:
 It does NOT model the robot: joint_pos does not follow your residual, and the
 estimator values are fixed. It tests plumbing and protocol, not a policy's
 control quality.
-
-With --gait policy.npz it plays that bundle's stride with a calibrated, upright
-estimator, which is what rl_policy_node's guards insist on before they engage.
 
 With --summary it writes what it saw on exit - commands, CRC errors, sequence
 gaps, every safety transition - which is what the CI end-to-end test checks.
@@ -55,7 +52,7 @@ MAX_REJECTS = 10
 
 class FakeBoard:
 
-    def __init__(self, link_path: str, error_at: float = -1.0, gait: str = "") -> None:
+    def __init__(self, link_path: str, error_at: float = -1.0) -> None:
         self.master, slave = os.openpty()
         tty.setraw(slave)
         self._slave = slave
@@ -65,11 +62,6 @@ class FakeBoard:
         os.symlink(os.ttyname(slave), link_path)
 
         self.error_at = error_at
-        self.gait = None
-        if gait:
-            import numpy as np
-            z = np.load(gait)
-            self.gait = (z["gait_q"], float(z["gait_period"]))
         self.lock = threading.Lock()
         self.t0 = time.monotonic()
         self.safety = P.SAFETY_BOOT
@@ -195,24 +187,12 @@ class FakeBoard:
                     self._set(P.SAFETY_FAULT, "no command for 200 ms")
                 safety = self.safety
 
-            period = self.gait[1] if self.gait else 1.26
-            phase = (seq / (1000.0 * period)) % 1.0
+            phase = (seq / (1000.0 * 1.26)) % 1.0
             w = 2.0 * math.pi * phase
             errors = [0] * P.NUM_JOINTS
             if self.error_at >= 0 and self.error_at <= now - self.t0 < self.error_at + 1.0:
                 errors[P.JOINT_INDEX["right_ankle_pitch"]] = 0x08000200
-            over = {}
-            if self.gait:
-                table, n = self.gait[0], self.gait[0].shape[0]
-                x = phase * n
-                i, f = int(x), x - int(x)
-                ref = [float(v) for v in (1 - f) * table[i % n] + f * table[(i + 1) % n]]
-                over = dict(ref_angle=ref, joint_pos=ref, joint_vel=[0.0] * P.NUM_JOINTS,
-                            quat=[1.0, 0.0, 0.0, 0.0], gyro=[0.0, 0.0, 0.0],
-                            vel_hdg=[0.0, 0.3, 0.0], pelvis_z=0.93, foot_z=[0.0, 0.03],
-                            contact=[0.0, 1.0], fused_valid=P.FUSION_OK,
-                            fk_valid=P.FK_RIGHT_VALID | P.FK_LEFT_VALID)
-            values = dict(
+            pkt = pack_state(state_values(
                 seq=seq, timestamp_us=(seq * 1000) & 0xFFFFFFFF, phase=phase,
                 joint_pos=[0.2 * math.sin(w + j) for j in range(P.NUM_JOINTS)],
                 joint_vel=[0.2 * w * math.cos(w + j) for j in range(P.NUM_JOINTS)],
@@ -225,9 +205,7 @@ class FakeBoard:
                             if safety == P.SAFETY_ARMED
                             else [float("nan")] * P.NUM_JOINTS),
                 gains_seq=self.gains_seq,
-                act_error=errors)
-            values.update(over)
-            pkt = pack_state(state_values(**values))
+                act_error=errors))
             try:
                 os.write(self.master, pkt)
             except OSError:
@@ -259,10 +237,9 @@ def main(argv=None) -> int:
     ap.add_argument("--summary", help="write a JSON summary here on exit")
     ap.add_argument("--error-at", type=float, default=-1.0,
                     help="report an ODrive error on right_ankle_pitch for 1 s from this time")
-    ap.add_argument("--gait", default="", help="policy.npz: play its stride, estimator OK")
     a = ap.parse_args(argv)
 
-    board = FakeBoard(a.link, error_at=a.error_at, gait=a.gait)
+    board = FakeBoard(a.link, error_at=a.error_at)
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: board.stop())
     print(f"fake STM32 streaming 1 kHz on {a.link}\n"

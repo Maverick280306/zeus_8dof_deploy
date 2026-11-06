@@ -85,7 +85,7 @@ def test_joint_state_arrays(packet):
     names, pos, vel, eff = convert.joint_state_arrays(packet)
     assert names == list(P.JOINT_NAMES) + list(P.BOLTED_JOINT_NAMES)
     assert all(type(x) is float for x in pos + vel + eff)
-    assert pos[4] == pytest.approx(0.5) and eff[P.NUM_JOINTS - 1] == pytest.approx(4.5)
+    assert pos[4] == pytest.approx(0.5) and eff[P.NUM_JOINTS - 1] == pytest.approx(3.5)
     # The bolted waist is reported, at zero, so robot_state_publisher can place
     # everything above it.
     assert pos[P.NUM_JOINTS:] == [0.0] * len(P.BOLTED_JOINT_NAMES)

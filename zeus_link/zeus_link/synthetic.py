@@ -37,7 +37,7 @@ def state_values(seq=1234, **over):
         "imu_seq": 42,
         "act_torque": [0.5 * i for i in range(P.NUM_JOINTS)],
         "act_target": [0.11 * (i + 1) for i in range(P.NUM_JOINTS)],
-        "act_error": [0, 0, 0x200, 0, 0, 0, 0, 0, 0, 0x08000200],
+        "act_error": [0, 0, 0x200, 0, 0, 0, 0, 0x08000200],
         "fused_pos": [1.0, 2.0, 0.81],
         "fused_vel": [0.3, 0.1, 0.0],
         "fused_gyro_bias": [1e-3, 2e-3, 3e-3],
@@ -51,8 +51,8 @@ def state_values(seq=1234, **over):
         "stream_flags": P.STREAM_GAIT_LIVE,
         "reserved0": 0,
         "contact_ticks": [500, 65535],
-        "act_state": [8, 8, 1, 8, 8, 8, 8, 8, 8, 3],
-        "act_flags": [3, 3, 1, 3, 3, 3, 3, 3, 3, 0],
+        "act_state": [8, 8, 1, 8, 8, 8, 8, 3],
+        "act_flags": [3, 3, 1, 3, 3, 3, 3, 0],
         "enc_valid": 0x0F,
         "contacts": 0x19,
         "fused_valid": P.FUSION_CONVERGING,
@@ -87,5 +87,5 @@ def pack_state(values):
 
 
 def state_packet(seq=1234, **over):
-    """A complete, CRC-valid state packet."""
+    """A complete, CRC-valid 444-byte state packet."""
     return pack_state(state_values(seq=seq, **over))

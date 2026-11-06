@@ -18,9 +18,9 @@
 #   vel_gain              Nm per (turn/s) of error
 #   vel_integrator_gain   Nm per turn of accumulated error
 
-float32[10] pos_gain
-float32[10] vel_gain
-float32[10] vel_integrator_gain
+float32[8] pos_gain
+float32[8] vel_gain
+float32[8] vel_integrator_gain
 ---
 bool applied            # false = the board refused them, see message
 string message

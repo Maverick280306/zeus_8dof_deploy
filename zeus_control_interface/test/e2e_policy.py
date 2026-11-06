@@ -24,7 +24,7 @@ from ament_index_python.packages import get_package_prefix, get_package_share_di
 PKG = "zeus_control_interface"
 LINK = os.path.join(get_package_prefix("zeus_link"), "lib", "zeus_link")
 NODE = os.path.join(get_package_prefix(PKG), "lib", PKG, "rl_policy_node")
-GAIT = os.path.join(get_package_share_directory(PKG), "policy", "m1_mukesh_3M", "policy.npz")
+GAIT = os.path.join(get_package_share_directory(PKG), "policy", "z1_softland_tol05", "policy.npz")
 failures = []
 
 

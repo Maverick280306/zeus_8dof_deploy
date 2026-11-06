@@ -14,7 +14,7 @@ import pytest
 from zeus_control_interface.policy_runtime import Policy, bundle_dir
 from zeus_link import nexus_proto as P
 
-BUNDLE = os.path.join(os.path.dirname(__file__), "..", "policy", "m1_mukesh_3M")
+BUNDLE = os.path.join(os.path.dirname(__file__), "..", "policy", "z1_softland_tol05")
 
 
 @pytest.fixture(scope="module")

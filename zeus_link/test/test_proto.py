@@ -6,14 +6,14 @@ import struct
 from zeus_link import nexus_proto as P
 
 
-def test_sizes_and_version_match_firmware_v10():
-    # link_proto.h after firmware_handoff/link_proto_v10.patch: nexus_state_t 478,
-    # nexus_cmd_t 52, nexus_gains_t 130, NEXUS_PROTO_VERSION 10. Ankle roll adds
-    # two joints: 6 float32/uint32 arrays and 2 uint8 arrays, at 2 entries each.
-    assert P.STATE_SIZE == 478
-    assert P.COMMAND_SIZE == 52
-    assert P.GAINS_SIZE == 130
-    assert P.PROTO_VERSION == 10
+def test_sizes_and_version_match_firmware_v9():
+    # link_proto.h: nexus_state_t 426, nexus_cmd_t 44, nexus_gains_t 106,
+    # NEXUS_PROTO_VERSION 9. The state packet lost 8 bytes at v9: contact[]
+    # went from four floats to two when each foot dropped to one switch.
+    assert P.STATE_SIZE == 426
+    assert P.COMMAND_SIZE == 44
+    assert P.GAINS_SIZE == 106
+    assert P.PROTO_VERSION == 9
 
 
 def test_crc_is_ccitt_false():
@@ -75,13 +75,11 @@ def test_command_packs_to_the_firmware_layout():
 def test_joint_map_is_the_confirmed_wiring():
     assert P.JOINT_NAMES == (
         "left_hip_pitch", "left_hip_roll", "left_knee_pitch", "left_ankle_pitch",
-        "left_ankle_roll",
         "right_hip_pitch", "right_hip_roll", "right_knee_pitch", "right_ankle_pitch",
-        "right_ankle_roll",
     )
-    # Index = bus * 5 + (node - 1). A policy's residual goes on the wire without
-    # a permutation, so a swap here drives the wrong joint with no error at all.
-    assert P.NUM_JOINTS == 10
+    # Two legs, no waist: the waist actuators are not in this build, and the
+    # two bolted joints are reported separately, not in the packet.
+    assert P.NUM_JOINTS == 8
     # No waist in the model any more: both hips bolt straight to the torso, so
     # there is no undriven joint for /joint_states to stand in for.
     assert P.BOLTED_JOINT_NAMES == ()

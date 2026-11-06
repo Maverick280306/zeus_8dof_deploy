@@ -1,7 +1,7 @@
 # One state packet from the STM32, as published on /zeus/state.
 #
-# Field for field the 478-byte USB packet (link_proto.h nexus_state_t, protocol
-# v10), with the same names as zeus_link.nexus_proto.NexusState. Values are
+# Field for field the 444-byte USB packet (link_proto.h nexus_state_t, protocol
+# v6), with the same names as zeus_link.nexus_proto.NexusState. Values are
 # exactly what the board sent - no scaling, no unit changes, no filtering.
 #
 # header.stamp is when the Pi RECEIVED the packet. seq and timestamp_us are the
@@ -13,23 +13,21 @@
 # and skips any that arrived while it was busy, so a slow subscriber sees fresh
 # data rather than a growing backlog. Watch seq for gaps if every packet matters.
 
-# (pelvis_z and vel_hdg are the IMU's, not the hip centre's: the estimator's body
-# frame is imu_link. zeus_control_interface/obs_adapter.py moves them.)
-
-# ---- joint index: every [10] array below uses this order --------------------
+# ---- joint index: every [8] array below uses this order --------------------
 # index = bus * 5 + (node - 1); bus 0 = FDCAN1, bus 1 = FDCAN2.
 uint8 J_LEFT_HIP_PITCH=0
 uint8 J_LEFT_HIP_ROLL=1
 uint8 J_LEFT_KNEE_PITCH=2
 uint8 J_LEFT_ANKLE_PITCH=3
-uint8 J_LEFT_ANKLE_ROLL=4
-uint8 J_RIGHT_HIP_PITCH=5
-uint8 J_RIGHT_HIP_ROLL=6
-uint8 J_RIGHT_KNEE_PITCH=7
-uint8 J_RIGHT_ANKLE_PITCH=8
-uint8 J_RIGHT_ANKLE_ROLL=9
+uint8 J_RIGHT_HIP_PITCH=4
+uint8 J_RIGHT_HIP_ROLL=5
+uint8 J_RIGHT_KNEE_PITCH=6
+uint8 J_RIGHT_ANKLE_PITCH=7
 #
-# TWO LEGS, FIVE JOINTS EACH, NO WAIST. Ankle roll is CAN node 5 on each bus.
+# TWO LEGS, NO WAIST - a temporary build. The robot's other two actuators are
+# waist roll and waist pitch; this firmware neither commands nor expects them,
+# and the waist is bolted at its zero pose. /joint_states still carries the
+# waist joints at 0 so the model in RViz stays in one piece.
 
 # ---- contact[2] order, and bits in `contacts` ------------------------------
 # One mechanical switch per foot, at the centre of the sole. There were two per
@@ -74,17 +72,17 @@ std_msgs/Header header
 uint32 seq                      # 1 kHz tick counter on the STM32
 uint32 timestamp_us             # STM32 1 MHz counter, wraps every ~71 min
 
-# ==== policy block: 50 values, in this order =================================
+# ==== policy block: 44 values, in this order =================================
 # zeus_link.convert.policy_block(msg) returns them as one float32 array.
 float32 pelvis_z                # m, height above the stance ground
 float32[4] quat                 # w,x,y,z body->world, fused estimate
 float32[3] gyro                 # rad/s, body frame
 float32[3] vel_hdg              # m/s, heading frame: lateral, forward, vertical
-float32[10] joint_pos           # rad, output side
-float32[10] joint_vel           # rad/s, output side
+float32[8] joint_pos           # rad, output side
+float32[8] joint_vel           # rad/s, output side
 float32[4] spring_angle         # rad, SPRING DEFLECTION, not a joint angle:
                                 # L hip pitch, L knee pitch, R hip pitch, R knee pitch
-float32[10] ref_angle           # rad, output side: stored gait at `phase`
+float32[8] ref_angle           # rad, output side: stored gait at `phase`
 float32[2] contact              # 0.0 / 1.0, debounced, CONTACT_* order
 float32[2] foot_z               # m, world. [0] right, [1] left. NaN if invalid
 float32 phase                   # 0..1 stride clock
@@ -97,17 +95,17 @@ float32[3] imu_gyro             # rad/s
 uint32 imu_seq
 
 # ---- actuators ---------------------------------------------------------------
-float32[10] act_torque          # Nm, ODrive estimate
-uint32[10] act_error            # raw ODrive axis_error bitmask
-uint8[10] act_state             # raw ODrive axis_state (8 = CLOSED_LOOP_CONTROL)
-uint8[10] act_flags             # bit 0 telemetry fresh, bit 1 heartbeat fresh
+float32[8] act_torque          # Nm, ODrive estimate
+uint32[8] act_error            # raw ODrive axis_error bitmask
+uint8[8] act_state             # raw ODrive axis_state (8 = CLOSED_LOOP_CONTROL)
+uint8[8] act_flags             # bit 0 telemetry fresh, bit 1 heartbeat fresh
 
 # What the drive was actually TOLD this tick, after the reference, the policy's
 # residual, the safety envelope, the slew limit and the interpolator. NaN while
 # nothing is being driven. ref_angle + residual is what was asked for; this is
 # what the joint got, and it is what joint_pos should be plotted against when
 # tuning a drive's gains.
-float32[10] act_target          # rad, output side, or NaN
+float32[8] act_target          # rad, output side, or NaN
 
 # ---- estimator internals -----------------------------------------------------
 float32[3] fused_pos            # m, world. [2] is pelvis_z; [0],[1] drift

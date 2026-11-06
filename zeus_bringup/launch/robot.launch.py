@@ -37,9 +37,13 @@ def generate_launch_description():
     rerun = LaunchConfiguration('rerun')
 
     # Generated from the CAD export by zeus_description/scripts/clean_urdf.py.
-    # mukesh, not zeus: this is the build with ankle roll, the one the protocol's
-    # ten joints describe. zeus.urdf has no ankle-roll joint to place.
-    urdf = os.path.join(get_package_share_directory('mukesh_description'), 'urdf', 'mukesh.urdf')
+    #
+    # zeus, not mukesh: this is the real 8-joint robot, 4 nodes a bus, no ankle
+    # roll. It pointed at mukesh_description/mukesh.urdf while that ten-joint
+    # build was the target, which for this robot gives robot_state_publisher a
+    # model with two joints the board never reports - so TF and /joint_states
+    # would describe a robot that is not on the bench.
+    urdf = os.path.join(get_package_share_directory('zeus_description'), 'urdf', 'zeus.urdf')
     with open(urdf) as f:
         robot_description = ParameterValue(f.read(), value_type=str)
 

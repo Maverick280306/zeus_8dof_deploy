@@ -8,7 +8,7 @@ Three things live here:
 
   fill_state_msg(msg, pkt)      NexusState packet -> zeus_msgs/NexusState
   residual_rad_to_turns(values) the one unit conversion on the command path
-  policy_block(state)           the 50-value observation, from a packet OR a msg
+  policy_block(state)           the 46-value observation, from a packet OR a msg
 """
 
 from __future__ import annotations
@@ -135,7 +135,7 @@ def residual_rad_to_turns(values: Sequence[float]) -> Tuple[List[float], List[in
 
 def policy_block(state) -> np.ndarray:
     """
-    The 50-value observation block, as one float32 array.
+    The 46-value observation block, as one float32 array.
 
     Works on a zeus_msgs/NexusState or a nexus_proto.NexusState - they share
     field names - and returns the same order as the packet's policy block, so

@@ -18,7 +18,10 @@ from dataclasses import dataclass
 
 import numpy as np
 
-DEFAULT_BUNDLE = "m1_mukesh_3M"
+# The 8-joint robot's policy. It was "m1_mukesh_3M" - the TEN-joint Mukesh
+# bundle - which on this robot is a policy whose action vector is two joints
+# longer than the board has drives.
+DEFAULT_BUNDLE = "z1_softland_tol05"
 
 
 def bundle_dir(name: str = DEFAULT_BUNDLE) -> str:

@@ -19,19 +19,42 @@
 # how a joint is taken out of the loop while its neighbour is being tuned.
 #
 # These start as the firmware's defaults: the bench leg's tuned hip and knee
-# numbers, the 9:1 ankle's much smaller velocity gain, and hip roll guessed.
-# NONE OF THEM HAVE BEEN TUNED ON THE ROBOT. Ankle roll copies ankle pitch until
-# its drive is chosen. The policy was trained on the stiffness in
-# docs/MUKESH_DEPLOYMENT.md, which these numbers do not yet give.
+# numbers, a much smaller ankle velocity gain, and hip roll guessed.
+# NONE OF THEM HAVE BEEN TUNED ON THE ROBOT, and they are NOT the stiffness the
+# policy trained on.
+#
+# The ankle numbers were measured on a 9:1 ankle. THE ANKLE IS 15:1 - confirmed
+# on the assembled robot and independently in the policy's own zeus_model.py
+# (N_SEA, N_ROLL, N_ANK = 47, 26, 15) - so they are worse than untuned.
+#
+# What the policy DID train on, converted to the ODrive's own units. The drive's
+# position and velocity are turns of whatever shaft ITS encoder sits on, while
+# its torque is always MOTOR torque, so:
+#
+#     pos_gain = KP / KD          always - a ratio of encoder units, gear cancels
+#     vel_gain = KD * 2pi / N     encoder on the load
+#     vel_gain = KD * 2pi / N^2   encoder on the MOTOR  (the ankle)
+#
+#     class                    KP     KD   gear   pos_gain   vel_gain
+#     hip pitch, knee         150   12.0   47:1       12.5     1.6042
+#     hip roll                 60    4.0   26:1       15.0     0.9666
+#     ankle pitch              30    1.2   15:1       25.0     0.0335
+#
+# vel_int is 0 in training - there was no integrator at all, so the 50.0 below
+# is not a smaller version of it, it is a term that did not exist.
+#
+# NOT typed in yet because which shaft each encoder sits on has never been
+# measured: stm32_zeuss/docs/ODRIVE_COMMANDS.md says the ankle is motor-side
+# while robot_config.h says every drive reports output-shaft position with the
+# ratio applied, and hip roll has never been checked at all. The drives are the
+# authority, and a vel_gain wrong by N^2 is a factor of 225.
 
 joints:
   left_hip_pitch:    {pos: 30.0, vel: 10.0, vel_int: 50.0}
   left_hip_roll:     {pos: 30.0, vel: 10.0, vel_int: 50.0}
   left_knee_pitch:   {pos: 30.0, vel: 10.0, vel_int: 50.0}
   left_ankle_pitch:  {pos: 17.0, vel: 0.3,  vel_int: 1.5}
-  left_ankle_roll:   {pos: 17.0, vel: 0.3,  vel_int: 1.5}
   right_hip_pitch:   {pos: 30.0, vel: 10.0, vel_int: 50.0}
   right_hip_roll:    {pos: 30.0, vel: 10.0, vel_int: 50.0}
   right_knee_pitch:  {pos: 30.0, vel: 10.0, vel_int: 50.0}
   right_ankle_pitch: {pos: 17.0, vel: 0.3,  vel_int: 1.5}
-  right_ankle_roll:  {pos: 17.0, vel: 0.3,  vel_int: 1.5}
