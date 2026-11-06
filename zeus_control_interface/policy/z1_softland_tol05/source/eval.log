@@ -1,0 +1,10 @@
+v=0.20 alive=20.0s vx=0.133 tilt95=11.85 (roll 4.1 pitch 11.4) cvT=0.385 cvL=0.762 rho=0.82 W=223mm leg=0.0mm LR=0 rms=0.35 pk=0.36 da95=0.180 hf=0.02 sat=0.069 res=13.6d spr=0.61d  gate[Y...YY..]
+v=0.25 alive=20.0s vx=0.175 tilt95=11.58 (roll 4.2 pitch 11.4) cvT=0.588 cvL=0.980 rho=0.48 W=196mm leg=0.0mm LR=0 rms=0.41 pk=0.38 da95=0.200 hf=0.02 sat=0.043 res=13.4d spr=0.57d  gate[Y...YY..]
+v=0.30 alive=20.0s vx=0.222 tilt95=9.99 (roll 4.3 pitch 9.7) cvT=0.545 cvL=0.500 rho=0.71 W=197mm leg=0.0mm LR=0 rms=0.39 pk=0.36 da95=0.202 hf=0.02 sat=0.059 res=14.1d spr=0.57d  gate[Y...YY..]
+v=0.35 alive=20.0s vx=0.249 tilt95=8.89 (roll 4.0 pitch 8.6) cvT=0.453 cvL=0.545 rho=0.74 W=216mm leg=0.0mm LR=0 rms=0.41 pk=0.39 da95=0.212 hf=0.03 sat=0.065 res=14.0d spr=0.54d  gate[Y...YY..]
+v=0.40 alive=20.0s vx=0.291 tilt95=7.17 (roll 5.2 pitch 6.1) cvT=0.369 cvL=0.560 rho=0.67 W=248mm leg=-1.1mm LR=5 rms=0.40 pk=0.48 da95=0.211 hf=0.02 sat=0.064 res=14.1d spr=0.84d  gate[Y....Y..]
+v=0.45 alive=20.0s vx=0.303 tilt95=9.26 (roll 5.7 pitch 8.6) cvT=0.245 cvL=1.115 rho=0.90 W=189mm leg=0.0mm LR=0 rms=0.40 pk=0.44 da95=0.234 hf=0.04 sat=0.029 res=14.0d spr=0.83d  gate[Y...YY..]
+v=0.50 alive=20.0s vx=0.324 tilt95=9.00 (roll 5.7 pitch 8.2) cvT=0.208 cvL=1.186 rho=0.95 W=199mm leg=0.0mm LR=0 rms=0.43 pk=0.53 da95=0.249 hf=0.04 sat=0.023 res=13.8d spr=0.96d  gate[Y...YY..]
+
+GATE ORDER: ['survive', 'track', 'lean<2deg', 'limit_cycle', 'no_leg_collision', 'rms_ok', 'smooth', 'not_wild']
+ALL PASS: False

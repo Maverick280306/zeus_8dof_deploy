@@ -1,0 +1,77 @@
+{
+ "run": "z1_softland_tol05",
+ "variant": "",
+ "policy_file": "final.zip",
+ "num_timesteps": 6012928,
+ "deployed_speed_m_s": 0.3,
+ "gait_period_s": 1.8575073154507036,
+ "network": "MLP 159-256-256-128-8, ELU, deterministic mean",
+ "observation": "53 values x 3 frames at 50 Hz, oldest first",
+ "sha256": {
+  "final.zip": "2146a877627b07bcd94db2bbc947db48e5b76418013814b04d51ccd3b351fbbf",
+  "final_vecnorm.pkl": "660b1fcb14480670ab37f74a3af86eeee736ee849fa904e045d82c305407dc8b",
+  "gait_library.npz": "dca3aefe9f5d3270f091e18d24b144aee024b536f0304112d9be72e8b6ea2fa7",
+  "zeus.xml": "6f524b3070f12bf5514b64cff30a3d5e6f38a5db7a702321ab793b80277e8934",
+  "zeus.urdf": "6e7d4e74a9e2f33e6da913ab0ceb2d3cf27dd4e92e106083d86ecfa5d7c68dcd"
+ },
+ "protocol": "v9 (8 joints, index = bus*4 + (node-1)) -- NOT the v10 wire protocol currently implemented in zeus_link/zeus_link/nexus_proto.py, which is hardcoded to 10 joints / 5 nodes per bus for the Mukesh build. See docs/ZEUS_DEPLOYMENT.md, Known Blocker.",
+ "closed_loop_gate": "ALL PASS: False (eval.log) -- fails lean<2deg at every tested speed 0.20-0.50 m/s; tilt95 7-12deg. See docs/ZEUS_DEPLOYMENT.md.",
+ "exported": "2026-11-06",
+ "training_config": {
+  "lib": "libs/softland_tol05/gait_library.npz",
+  "run": "z1_softland_tol05",
+  "steps": 6000000,
+  "envs": 8,
+  "nsteps": 2048,
+  "vmin": 0.2,
+  "vmax": 0.5,
+  "resume": null,
+  "W": {
+   "vel": 0.2,
+   "lat": 0.08,
+   "lean": 0.25,
+   "track": 0.15,
+   "height": 0.08,
+   "contact": 0.1,
+   "yaw": 0.06,
+   "rate": 0.6,
+   "acc": 0.25,
+   "mag": 0.1,
+   "torque": 0.04,
+   "collide": 0.5,
+   "clear": 0.04,
+   "spring": 0.3
+  },
+  "ACT_SCALE": [
+   0.25,
+   0.12,
+   0.25,
+   0.15,
+   0.25,
+   0.12,
+   0.25,
+   0.15
+  ],
+  "ACT_FC": 4.0,
+  "KP": [
+   150.0,
+   60.0,
+   150.0,
+   30.0,
+   150.0,
+   60.0,
+   150.0,
+   30.0
+  ],
+  "KD": [
+   12.0,
+   4.0,
+   12.0,
+   1.2,
+   12.0,
+   4.0,
+   12.0,
+   1.2
+  ]
+ }
+}

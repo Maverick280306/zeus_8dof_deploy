@@ -1,0 +1,114 @@
+<mujoco model="zeus">
+  <compiler angle="radian" inertiafromgeom="false" meshdir="/home/vedant-mudras/Nexus/zeus_26-main/zeus_description/meshes" />
+
+  <option timestep="0.002" iterations="50" ls_iterations="10" solver="Newton" integrator="implicitfast" gravity="0 0 -9.81" /><default /><asset>
+    <mesh name="knee_brackett_right" file="/home/vedant-mudras/Nexus/zeus_26-main/zeus_description/meshes/knee_brackett_right.stl" scale="0.001 0.001 0.001" />
+    <mesh name="Hip_roll_bracket_right" file="/home/vedant-mudras/Nexus/zeus_26-main/zeus_description/meshes/Hip_roll_bracket_right.stl" scale="0.001 0.001 0.001" />
+    <mesh name="hip_pitch_bracket_right" content_type="model/stl" file="/home/vedant-mudras/Nexus/zeus_26-main/zeus_description/meshes/hip_pitch_bracket_right.stl" scale="0.001 0.001 0.001" />
+    <mesh name="Hip_pitch_right" file="/home/vedant-mudras/Nexus/zeus_26-main/zeus_description/meshes/Hip_pitch_right.stl" scale="0.001 0.001 0.001" />
+    <mesh name="knee_right" file="/home/vedant-mudras/Nexus/zeus_26-main/zeus_description/meshes/knee_right.stl" scale="0.001 0.001 0.001" />
+    <mesh name="hip_roll_acc_right" content_type="model/stl" file="/home/vedant-mudras/Nexus/zeus_26-main/zeus_description/meshes/hip_roll_acc_right.stl" scale="0.001 0.001 0.001" />
+    <mesh name="Foot_right" file="/home/vedant-mudras/Nexus/zeus_26-main/zeus_description/meshes/Foot_right.stl" scale="0.001 0.001 0.001" />
+    <mesh name="Ankel_right" file="/home/vedant-mudras/Nexus/zeus_26-main/zeus_description/meshes/Ankel_right.stl" scale="0.001 0.001 0.001" />
+    <mesh name="knee_brackett_left" file="/home/vedant-mudras/Nexus/zeus_26-main/zeus_description/meshes/knee_brackett_left.stl" scale="0.001 0.001 0.001" />
+    <mesh name="hip_roll_brackett_left" file="/home/vedant-mudras/Nexus/zeus_26-main/zeus_description/meshes/hip_roll_brackett_left.stl" scale="0.001 0.001 0.001" />
+    <mesh name="hip_pitch_bracket_left" content_type="model/stl" file="/home/vedant-mudras/Nexus/zeus_26-main/zeus_description/meshes/hip_pitch_bracket_left.stl" scale="0.001 0.001 0.001" />
+    <mesh name="Hip_pitch_left" file="/home/vedant-mudras/Nexus/zeus_26-main/zeus_description/meshes/Hip_pitch_left.stl" scale="0.001 0.001 0.001" />
+    <mesh name="knee_actuator_left" file="/home/vedant-mudras/Nexus/zeus_26-main/zeus_description/meshes/knee_actuator_left.stl" scale="0.001 0.001 0.001" />
+    <mesh name="hip_roll_acc_left" content_type="model/stl" file="/home/vedant-mudras/Nexus/zeus_26-main/zeus_description/meshes/hip_roll_acc_left.stl" scale="0.001 0.001 0.001" />
+    <mesh name="foot_left" file="/home/vedant-mudras/Nexus/zeus_26-main/zeus_description/meshes/foot_left.stl" scale="0.001 0.001 0.001" />
+    <mesh name="Ankel_left" file="/home/vedant-mudras/Nexus/zeus_26-main/zeus_description/meshes/Ankel_left.stl" scale="0.001 0.001 0.001" />
+    <mesh name="Knee_spring_left" file="/home/vedant-mudras/Nexus/zeus_26-main/zeus_description/meshes/Knee_spring_left.stl" scale="0.001 0.001 0.001" />
+    <mesh name="Knee_spring_right" file="/home/vedant-mudras/Nexus/zeus_26-main/zeus_description/meshes/Knee_spring_right.stl" scale="0.001 0.001 0.001" />
+    <mesh name="Hip_Spring_left" content_type="model/stl" file="/home/vedant-mudras/Nexus/zeus_26-main/zeus_description/meshes/Hip_Spring_left.stl" scale="0.001 0.001 0.001" />
+    <mesh name="Hip_spring_right" content_type="model/stl" file="/home/vedant-mudras/Nexus/zeus_26-main/zeus_description/meshes/Hip_spring_right.stl" scale="0.001 0.001 0.001" />
+    <mesh name="base_link" file="/home/vedant-mudras/Nexus/zeus_26-main/zeus_description/meshes/base_link.stl" scale="0.001 0.001 0.001" />
+    <mesh name="IMU-1" content_type="model/stl" file="/home/vedant-mudras/Nexus/zeus_26-main/zeus_description/meshes/IMU-1.stl" scale="0.001 0.001 0.001" />
+  <texture name="grid" type="2d" builtin="checker" width="512" height="512" rgb1="0.78 0.80 0.83" rgb2="0.70 0.72 0.75" /><material name="grid" texture="grid" texrepeat="8 8" reflectance="0.05" /></asset>
+
+  <worldbody>
+    <geom name="floor" type="plane" size="50 50 0.1" contype="1" conaffinity="1" friction="0.9 0.02 0.002" rgba="0.82 0.84 0.86 1" material="grid" /><body name="base_link">
+      <freejoint name="root" /><body name="torso" pos="0.00361362 -0.0168814 -0.554006" quat="0.707107 0 0 -0.707107">
+        <inertial pos="-0.016968681 -0.0045012484 0.72403279" quat="-0.0051844704 0.70593676 0.00038273995 0.70825579" mass="0.67246148" diaginertia="0.0033631118 0.0029989488 0.001651044" /><geom name="base_link_collision" type="mesh" mesh="base_link" contype="1" conaffinity="0" group="1" rgba="0.55 0.58 0.62 1" />
+        <body name="right_hip_pitch_motor" pos="0.0530945 0.0265877 0.689258" quat="3.4132e-05 0.999999 -0.00112126 -0.000275839">
+          <inertial pos="0.039282554 0.029814266 0.065852547" quat="0.5333358 0.46028054 0.44295818 0.55451131" mass="1.0900294" diaginertia="0.0019082616 0.0018756939 0.0015662348" /><geom name="Hip_pitch_right_collision" pos="0.0249695 0.0297752 0.0671214" quat="0.706911 0.000816988 0.707301 -0.000768718" type="mesh" mesh="Hip_pitch_right" contype="1" conaffinity="0" group="1" rgba="0.55 0.58 0.62 1" />
+          <body name="right_hip_spring" pos="-0.0266701 0.030238 0.0673814">
+            <inertial pos="-0.009977389 2.237562e-05 5.5083392e-06" quat="0.99999933 3.0932857e-07 0.0002758772 -0.0011212538" mass="0.072983746" diaginertia="0.00013960461 7.0410308e-05 7.0410308e-05" /><joint name="right_hip_pitch" pos="0 0 0" axis="-0.999997 0.00224251 0.000551755" range="-0.7854 0.7854" actuatorfrcrange="-188.00 188.00" armature="1.10450" damping="0.500" frictionloss="0.05" actuatorfrclimited="true" />
+            <geom name="Hip_Spring_left_collision" pos="0.0924414 -0.000201549 -0.0850625" quat="0.00112126 0.000275839 -3.4132e-05 0.999999" type="mesh" mesh="Hip_Spring_left" contype="0" conaffinity="0" group="1" rgba="0.55 0.58 0.62 1" />
+            <body name="right_hip_bracket" pos="-0.0165 3.7e-05 9.11e-06" quat="0 0.707107 0 -0.707107">
+              <inertial pos="-0.03293982 0.00015759639 -0.065826261" quat="0.69942411 0.031274095 0.029219012 0.7134242" mass="0.21747776" diaginertia="0.0012369239 0.0012336167 0.0005301746" /><joint name="right_hip_pitch_spring" pos="0 0 0" axis="-0.000551755 -0.00224251 0.999997" range="-0.029671 0.029671" actuatorfrcrange="-25 25" stiffness="3437.747" damping="2.000" limited="true" solreflimit="0.004 1" armature="0.0002" />
+              <geom name="hip_pitch_bracket_right_collision" pos="0.0846994 0.000237703 -0.108553" quat="0.706911 0.000768718 -0.707301 -0.000816988" type="mesh" mesh="hip_pitch_bracket_right" contype="0" conaffinity="0" group="1" rgba="0.55 0.58 0.62 1" />
+              <body name="right_hip_roll_motor" pos="-0.0731291 0.0182039 -0.0886998" quat="0 -1 0 0">
+                <inertial pos="-0.05904298 0.030277886 -0.020180332" quat="0.44155321 0.54239919 -0.45022465 0.55509607" mass="0.61011278" diaginertia="0.0009506003 0.00085630676 0.00062660796" /><geom name="hip_roll_acc_right_collision" pos="-0.0625465 -0.0261935 -0.0201" quat="-0.353553 0.353553 -0.612372 -0.612372" type="mesh" mesh="hip_roll_acc_right" contype="0" conaffinity="0" group="1" rgba="0.55 0.58 0.62 1" />
+                <body name="right_hip_roll_bracket" pos="-0.0625465 -0.0261935 -0.0201" quat="0.707107 0 -0.707107 0">
+                  <inertial pos="2.1558508e-05 0.053963238 0.033302675" quat="0.77670477 0.62986212 4.4624935e-05 0.0018437132" mass="0.25939534" diaginertia="0.0012116689 0.00098781367 0.00087619339" /><joint name="right_hip_roll" pos="0 0 0" axis="-0.00224254 -0.999997 -6.76454e-05" range="-0.7854 0.7854" actuatorfrcrange="-43.68 43.68" armature="0.15080" damping="0.500" frictionloss="0.05" actuatorfrclimited="true" />
+                  <geom name="Hip_roll_bracket_right_collision" pos="0.0273028 0.0466579 0.592591" quat="0 0 -1 0" type="mesh" mesh="Hip_roll_bracket_right" contype="4" conaffinity="2" group="1" rgba="0.55 0.58 0.62 1" />
+                  <body name="right_knee_motor" pos="0.00044107 0.0386579 0.175812">
+                    <inertial pos="0.012320738 -0.00042738128 0.060344408" quat="0.46130315 0.51991112 0.46848344 0.54535778" mass="1.0350398" diaginertia="0.0017754133 0.0017178802 0.0014362207" /><geom name="knee_right_collision" pos="-0.003 3.83553e-09 0.061" quat="0.326506 -0.627211 0.326506 -0.627211" type="mesh" mesh="knee_right" contype="4" conaffinity="2" group="1" rgba="0.55 0.58 0.62 1" />
+                    <body name="right_knee_spring" pos="-0.0546406 -9.41e-06 0.060583">
+                      <inertial pos="-0.0099999985 -3.8142384e-09 7.0864324e-10" quat="1 0 0 0" mass="0.073916644" diaginertia="0.00013968043 7.0456189e-05 7.0456189e-05" /><joint name="right_knee_pitch" pos="0 0 0" axis="-0.999997 0.00224251 0.000551755" range="-0.7854 0.7854" actuatorfrcrange="-188.00 188.00" armature="1.10450" damping="0.500" frictionloss="0.05" actuatorfrclimited="true" />
+                      <geom name="Knee_spring_left_collision" pos="0.0886 -3.81424e-09 7.08643e-10" quat="0 0 -0.300706 -0.953717" type="mesh" mesh="Knee_spring_left" contype="4" conaffinity="2" group="1" rgba="0.55 0.58 0.62 1" />
+                      <body name="right_knee_bracket" pos="-0.015 0 0" quat="0.707107 0 0.707107 0">
+                        <inertial pos="-0.052564854 -3.1498117e-06 0.064260978" quat="0.68606014 -0.1708576 -0.17088749 0.68624094" mass="0.26171359" diaginertia="0.0017501327 0.0012446235 0.0010277068" /><joint name="right_knee_pitch_spring" pos="0 0 0" axis="-0.000551755 0.00224251 -0.999997" range="-0.029671 0.029671" actuatorfrcrange="-25 25" stiffness="3437.747" damping="2.000" limited="true" solreflimit="0.004 1" armature="0.0002" />
+                        <geom name="knee_brackett_right_collision" pos="-0.000860467 -3.31664e-09 0.103609" quat="0 0.707107 0 -0.707107" type="mesh" mesh="knee_brackett_right" contype="4" conaffinity="2" group="1" rgba="0.55 0.58 0.62 1" />
+                        <body name="right_ankle_motor" pos="-0.222404 0 0.0695823" quat="0.707107 0 -0.707107 0">
+                          <inertial pos="-0.026603023 -7.7143645e-06 0.046343538" quat="0.95702281 0.037669361 -0.26155061 -0.11949742" mass="0.74853813" diaginertia="0.00095862252 0.0009546667 0.00085824308" /><geom name="Ankel_right_collision" pos="-0.0125 -3.31664e-09 0.048" quat="0.5 -0.5 0.5 -0.5" type="mesh" mesh="Ankel_right" contype="4" conaffinity="2" group="1" rgba="0.55 0.58 0.62 1" />
+                          <body name="right_foot" pos="0.0385 0 0.048" quat="0 -1 0 0">
+                            <inertial pos="-0.025730465 3.0650642e-05 -0.061578652" quat="0.65911936 0.65872491 0.25657482 -0.25653951" mass="0.2497389" diaginertia="0.0010186939 0.00081235496 0.00049665806" /><joint name="right_ankle_pitch" pos="0 0 0" axis="-0.999997 -0.00224251 -0.000551755" range="-0.7854 0.7854" actuatorfrcrange="-25.20 25.20" armature="0.05019" damping="0.200" frictionloss="0.05" actuatorfrclimited="true" />
+                            <geom name="Foot_right_collision" pos="-0.267412 3.31664e-09 0.0182645" quat="1 0 0 0" type="mesh" mesh="Foot_right" contype="4" conaffinity="2" group="1" rgba="0.55 0.58 0.62 1" />
+                            <body name="right_contact" pos="-0.0326919 4.98164e-05 -0.090172" quat="0.706313 -0.000170913 -0.000219183 0.707899" />
+                          <geom name="right_sole_box" type="box" size="0.1052 0.0518 0.008" pos="-0.02890 0.00005 -0.08215" quat="0.706313 -0.000171 -0.000219 0.707899" contype="5" conaffinity="3" condim="3" friction="0.9 0.02 0.002" solref="0.008 1" solimp="0.95 0.99 0.001 0.5 2" rgba="0.2 0.2 0.2 1" mass="0" /><site name="right_sole" pos="-0.0288972667 0.0000550883 -0.0901547676" quat="0.7063134555 -0.0001709129 -0.0002191828 0.7078991633" size="0.01" /></body>
+                        </body>
+                      </body>
+                    </body>
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+        <body name="left_hip_pitch_motor" pos="-0.0866735 0.0265598 0.689258" quat="3.4132e-05 0.999999 -0.00112126 -0.000275839">
+          <inertial pos="-0.039116261 0.029965157 0.065907801" quat="0.44455966 0.55168403 0.53645319 0.45850782" mass="1.0900294" diaginertia="0.0019151352 0.0018827731 0.0015661534" /><geom name="Hip_pitch_left_collision" pos="-0.0247616 0.0298868 0.0671488" quat="0.706911 0.000816988 0.707301 -0.000768718" type="mesh" mesh="Hip_pitch_left" contype="1" conaffinity="0" group="1" rgba="0.40 0.55 0.75 1" />
+          <body name="left_hip_spring" pos="0.0268798 0.030118 0.0673519" quat="0 -1 0 0">
+            <inertial pos="0.009977386 2.2374545e-05 5.5087471e-06" quat="0.99999933 3.0932857e-07 -0.0002758772 0.0011212538" mass="0.072983746" diaginertia="0.00013960461 7.0410308e-05 7.0410308e-05" /><joint name="left_hip_pitch" pos="0 0 0" axis="-0.999997 -0.00224251 -0.000551755" range="-0.7854 0.7854" actuatorfrcrange="-188.00 188.00" armature="1.10450" damping="0.500" frictionloss="0.05" actuatorfrclimited="true" />
+            <geom name="Hip_spring_right_collision" pos="-0.0925351 -0.000213262 0.0849605" quat="0.999999 3.4132e-05 -0.000275839 0.00112126" type="mesh" mesh="Hip_spring_right" contype="0" conaffinity="0" group="1" rgba="0.40 0.55 0.75 1" />
+            <body name="left_hip_bracket" pos="0.0164999 3.7e-05 9.11e-06" quat="0 -0.707107 0 -0.707107">
+              <inertial pos="-0.032652081 0.00013798732 -0.065974109" quat="0.71333955 0.031204552 0.030099031 0.69947624" mass="0.21747776" diaginertia="0.0012369239 0.0012336167 0.00053017459" /><joint name="left_hip_pitch_spring" pos="0 0 0" axis="-0.000551755 0.00224251 -0.999997" range="-0.029671 0.029671" actuatorfrcrange="-25 25" stiffness="3437.747" damping="2.000" limited="true" solreflimit="0.004 1" armature="0.0002" />
+              <geom name="hip_pitch_bracket_left_collision" pos="0.08494 0.000249802 -0.108831" quat="0.000816988 -0.707301 0.000768718 -0.706911" type="mesh" mesh="hip_pitch_bracket_left" contype="0" conaffinity="0" group="1" rgba="0.40 0.55 0.75 1" />
+              <body name="left_hip_roll_motor" pos="-0.0728666 -0.0178057 -0.088884" quat="0 -1 0 0">
+                <inertial pos="-0.059506164 -0.030067429 -0.020381067" quat="0.54110126 0.44251978 -0.55640397 0.44922186" mass="0.61011292" diaginertia="0.0009506005 0.00085630812 0.00062660702" /><geom name="hip_roll_acc_left_collision" pos="-0.0630099 0.026403 -0.0200513" quat="0.354683 -0.353097 0.610802 0.613549" type="mesh" mesh="hip_roll_acc_left" contype="0" conaffinity="0" group="1" rgba="0.40 0.55 0.75 1" />
+                <body name="left_hip_roll_bracket" pos="-0.0630099 0.026403 -0.0200513" quat="0.707107 0 0.707107 0">
+                  <inertial pos="0.0002572233 -0.053962722 -0.033302548" quat="0.77669875 0.62985913 0.0010285764 0.0039330398" mass="0.25939529" diaginertia="0.0012116687 0.00098781353 0.00087619327" /><joint name="left_hip_roll" pos="0 0 0" axis="-0.00224254 0.999997 6.76454e-05" range="-0.7854 0.7854" actuatorfrcrange="-43.68 43.68" armature="0.15080" damping="0.500" frictionloss="0.05" actuatorfrclimited="true" />
+                  <geom name="hip_roll_brackett_left_collision" pos="-0.0264393 -0.0467784 -0.592621" quat="0 0.999997 0.00224251 0.000551755" type="mesh" mesh="hip_roll_brackett_left" contype="2" conaffinity="4" group="1" rgba="0.40 0.55 0.75 1" />
+                  <body name="left_knee_motor" pos="-7.367e-05 -0.0386591 -0.17581" quat="0 1 0 0">
+                    <inertial pos="-0.012255933 -0.00037226888 0.060357964" quat="0.46939357 0.54667765 0.46033745 0.51855824" mass="1.0350398" diaginertia="0.0017754133 0.0017178802 0.0014362207" /><geom name="knee_actuator_left_collision" pos="0.00306729 -1.36033e-05 0.0609966" quat="0.324918 -0.626824 0.328091 -0.627596" type="mesh" mesh="knee_actuator_left" contype="2" conaffinity="4" group="1" rgba="0.40 0.55 0.75 1" />
+                    <body name="left_knee_spring" pos="0.0547069 -0.00025463 0.0605226" quat="0 -1 0 0">
+                      <inertial pos="0.00999989 4.4847984e-05 1.1032588e-05" quat="0.99999733 1.2373107e-06 -0.00055175196 0.0022425066" mass="0.073916644" diaginertia="0.00013968043 7.0456189e-05 7.0456189e-05" /><joint name="left_knee_pitch" pos="0 0 0" axis="-0.999997 -0.00224251 -0.000551755" range="-0.7854 0.7854" actuatorfrcrange="-188.00 188.00" armature="1.10450" damping="0.500" frictionloss="0.05" actuatorfrclimited="true" />
+                      <geom name="Knee_spring_right_collision" pos="-0.0885991 -0.000397373 -9.77732e-05" quat="0.953714 -0.300705 -0.00120055 0.0019728" type="mesh" mesh="Knee_spring_right" contype="2" conaffinity="4" group="1" rgba="0.40 0.55 0.75 1" />
+                      <body name="left_knee_bracket" pos="0.0149998 6.727e-05 1.655e-05" quat="0 -0.707107 0 -0.707107">
+                        <inertial pos="-0.052635878 0.00028514784 -0.064234664" quat="0.68558023 0.17277535 0.169729 0.68652786" mass="0.26171206" diaginertia="0.0017501259 0.0012446158 0.0010277047" /><joint name="left_knee_pitch_spring" pos="0 0 0" axis="-0.000551755 0.00224251 -0.999997" range="-0.029671 0.029671" actuatorfrcrange="-25 25" stiffness="3437.747" damping="2.000" limited="true" solreflimit="0.004 1" armature="0.0002" />
+                        <geom name="knee_brackett_left_collision" pos="-0.000974834 0.000464825 -0.103639" quat="0.00158569 -0.707495 0.00158569 -0.706715" type="mesh" mesh="knee_brackett_left" contype="2" conaffinity="4" group="1" rgba="0.40 0.55 0.75 1" />
+                        <body name="left_ankle_motor" pos="-0.222481 0.00031167 -0.0693681" quat="0.707107 0 -0.707107 0">
+                          <inertial pos="0.026653815 -0.00012714384 0.046314157" quat="0.95714164 0.038325934 0.26199433 0.11734551" mass="0.74853863" diaginertia="0.00095862277 0.00095466748 0.00085824369" /><geom name="Ankel_left_collision" pos="0.0125528 -5.61842e-05 0.0479862" quat="0.498602 -0.499153 0.501396 -0.500844" type="mesh" mesh="Ankel_left" contype="2" conaffinity="4" group="1" rgba="0.40 0.55 0.75 1" />
+                          <body name="left_foot" pos="-0.0384466 0.00017255 0.0480425">
+                            <inertial pos="0.025808621 -0.00011558947 0.061509045" quat="0.65804115 0.6591937 0.25585596 -0.2588112" mass="0.24973822" diaginertia="0.0010184351 0.00081216145 0.00049621009" /><joint name="left_ankle_pitch" pos="0 0 0" axis="-0.999997 0.00224251 0.000551755" range="-0.7854 0.7854" actuatorfrcrange="-25.20 25.20" armature="0.05019" damping="0.200" frictionloss="0.05" actuatorfrclimited="true" />
+                            <geom name="foot_left_collision" pos="0.267389 -0.00119929 -0.0185596" quat="0.00224251 0.000551755 0 0.999997" type="mesh" mesh="foot_left" contype="2" conaffinity="4" group="1" rgba="0.40 0.55 0.75 1" />
+                            <body name="left_contact" pos="0.0328232 -0.000105202 0.0900126" quat="0.000170912 0.706313 -0.707899 -0.000219182" />
+                          <geom name="left_sole_box" type="box" size="0.1051 0.0518 0.008" pos="0.02899 -0.00014 0.08200" quat="-0.000171 -0.706313 0.707899 0.000219" contype="3" conaffinity="5" condim="3" friction="0.9 0.02 0.002" solref="0.008 1" solimp="0.95 0.99 0.001 0.5 2" rgba="0.2 0.2 0.2 1" mass="0" /><site name="left_sole" pos="0.0289989861 -0.0001391509 0.0899994969" quat="-0.0001709129 -0.7063134555 0.7078991633 0.0002191828" size="0.01" /></body>
+                        </body>
+                      </body>
+                    </body>
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+        <body name="imu_mount" pos="-0.0258219 -0.0123223 0.680608" quat="0.999999 -3.4132e-05 0.000275839 -0.00112126">
+          <inertial pos="0.010137012 0.0089167141 0.00083120905" quat="-0.00071637287 0.70691141 0.0006680475 0.70730142" mass="0.0070031693" diaginertia="6.4972062e-07 3.6335893e-07 2.8953938e-07" /><geom name="IMU-1_collision" pos="0.0253088 0.387406 -0.680568" quat="0.999999 3.4132e-05 -0.000275839 0.00112126" type="mesh" mesh="IMU-1" contype="0" conaffinity="0" group="1" rgba="0.55 0.58 0.62 1" />
+        </body>
+        <body name="imu_link" pos="-0.0155814 -0.00361362 0.681406" quat="0.707107 0 0 0.707107" />
+      </body>
+    <site name="imu" pos="0 -0.0013 0.1274" size="0.01" /></body>
+  <light pos="0 0 3" dir="0 0 -1" directional="true" /></worldbody>
+<actuator><motor name="left_hip_pitch" joint="left_hip_pitch" gear="1" ctrlrange="-188.00 188.00" ctrllimited="true" /><motor name="left_hip_roll" joint="left_hip_roll" gear="1" ctrlrange="-43.68 43.68" ctrllimited="true" /><motor name="left_knee_pitch" joint="left_knee_pitch" gear="1" ctrlrange="-188.00 188.00" ctrllimited="true" /><motor name="left_ankle_pitch" joint="left_ankle_pitch" gear="1" ctrlrange="-25.20 25.20" ctrllimited="true" /><motor name="right_hip_pitch" joint="right_hip_pitch" gear="1" ctrlrange="-188.00 188.00" ctrllimited="true" /><motor name="right_hip_roll" joint="right_hip_roll" gear="1" ctrlrange="-43.68 43.68" ctrllimited="true" /><motor name="right_knee_pitch" joint="right_knee_pitch" gear="1" ctrlrange="-188.00 188.00" ctrllimited="true" /><motor name="right_ankle_pitch" joint="right_ankle_pitch" gear="1" ctrlrange="-25.20 25.20" ctrllimited="true" /></actuator><sensor><framequat name="imu_quat" objtype="site" objname="imu" /><gyro name="imu_gyro" site="imu" /><accelerometer name="imu_acc" site="imu" /><velocimeter name="imu_vel" site="imu" /></sensor></mujoco>

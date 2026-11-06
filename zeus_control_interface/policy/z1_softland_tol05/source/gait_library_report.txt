@@ -1,0 +1,11 @@
+v=0.15 T=2.400 step=0.180 duty=0.67 lean=6.11d gapA=-84.5mm gapK=-27.1mm W=126mm rms/nom=0.45 pk=0.43 Eimp=0.000J spr=0.00 defl=0.18d jerk=409 dtau=80 CoT=0.489 per=5.0e-02
+v=0.20 T=2.400 step=0.240 duty=0.67 lean=7.28d gapA=-89.9mm gapK=-30.6mm W=133mm rms/nom=0.44 pk=0.37 Eimp=0.000J spr=0.00 defl=0.24d jerk=563 dtau=112 CoT=0.643 per=5.0e-02
+v=0.25 T=2.036 step=0.255 duty=0.61 lean=7.29d gapA=-95.3mm gapK=-33.1mm W=133mm rms/nom=0.47 pk=0.37 Eimp=0.000J spr=0.00 defl=0.22d jerk=697 dtau=129 CoT=0.618 per=5.0e-02
+v=0.30 T=1.858 step=0.279 duty=0.57 lean=7.08d gapA=-99.3mm gapK=-34.7mm W=133mm rms/nom=0.50 pk=0.37 Eimp=0.000J spr=0.00 defl=0.23d jerk=925 dtau=162 CoT=0.658 per=5.0e-02
+v=0.35 T=1.739 step=0.304 duty=0.54 lean=6.99d gapA=-103.3mm gapK=-36.4mm W=133mm rms/nom=0.52 pk=0.39 Eimp=0.000J spr=0.00 defl=0.22d jerk=1296 dtau=217 CoT=0.720 per=5.0e-02
+v=0.40 T=1.660 step=0.332 duty=0.52 lean=6.52d gapA=-107.7mm gapK=-37.7mm W=136mm rms/nom=0.54 pk=0.45 Eimp=0.000J spr=0.00 defl=0.32d jerk=1407 dtau=371 CoT=0.798 per=5.0e-02
+v=0.45 T=1.666 step=0.375 duty=0.52 lean=5.79d gapA=-90.8mm gapK=-29.6mm W=137mm rms/nom=0.52 pk=0.41 Eimp=0.000J spr=0.00 defl=0.28d jerk=1436 dtau=335 CoT=0.879 per=4.9e-02
+v=0.50 T=1.620 step=0.405 duty=0.51 lean=5.49d gapA=-90.6mm gapK=-29.3mm W=139mm rms/nom=0.54 pk=0.48 Eimp=0.000J spr=0.00 defl=0.32d jerk=1622 dtau=474 CoT=0.968 per=5.0e-02
+v=0.55 T=1.504 step=0.414 duty=0.51 lean=5.03d gapA=-75.5mm gapK=-20.7mm W=139mm rms/nom=0.58 pk=0.59 Eimp=0.000J spr=0.00 defl=0.35d jerk=2033 dtau=539 CoT=1.029 per=5.0e-02
+v=0.60 T=1.432 step=0.430 duty=0.51 lean=4.65d gapA=-68.6mm gapK=-16.9mm W=140mm rms/nom=0.67 pk=0.70 Eimp=0.000J spr=0.00 defl=0.34d jerk=2733 dtau=515 CoT=1.258 per=5.0e-02
+zeus_checks post: PASS
