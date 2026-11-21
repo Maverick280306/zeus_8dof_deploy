@@ -79,7 +79,9 @@ def test_command_msg():
     fields, _ = read_msg("NexusCommand")
     assert fields == [("std_msgs/Header", 1, "header"),
                       ("float32", 8, "residual_rad"),
-                      ("bool", 1, "enable")]
+                      ("bool", 1, "enable"),
+                      ("bool", 1, "hold"),            # v11 soft start
+                      ("bool", 1, "zero_ankles")]     # v11
 
 
 def test_policy_fields_are_in_the_msg_in_order():

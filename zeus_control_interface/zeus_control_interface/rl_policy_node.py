@@ -18,7 +18,21 @@ If `tick late` warnings appear on the real Pi, move it to its own thread.
 Enable is withheld until every Guards check passes, and a fall stands the board
 down and LATCHES: a fallen robot is not one to re-arm automatically, so it takes a
 restart of this node. dry_run runs everything but sends zero, which is the way to
-watch what the policy WOULD do on a stand.
+watch what the policy WOULD do on a stand. NOTE: zero residual is the stored gait,
+so a released dry run WALKS the gait - it only keeps the policy's corrections off.
+
+STARTING FROM A STANDING ROBOT (protocol v11 soft start). The policy may only
+take over at its start pose - every joint within 5 deg of the reference, at a
+phase in the start window - and a standing robot is 20-35 deg from it. So:
+
+  1. arm guards pass (Guards.arm_blockers): send enable + HOLD, zero residual.
+     The board freezes its gait clock at phase 0 and ramps the joints to that
+     pose over 3 s, then holds.
+  2. the board reports HOLD and the release guards pass (at the pose, in the
+     window): send enable with HOLD clear - the stride starts - and engage.
+
+release:=false stops after step 1: armed, standing at the start pose, nothing
+walking. That is the first thing to run on the robot.
 """
 
 from __future__ import annotations
@@ -31,7 +45,9 @@ from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from zeus_link.convert import RESIDUAL_LIMIT_RAD
 from zeus_link.nexus_proto import (HEALTH_NAMES, JOINT_NAMES, NUM_JOINTS, SAFETY_ARMED,
-                                   SAFETY_IDLE)
+                                   SAFETY_IDLE, STREAM_ARM_BLOCKED, STREAM_HOLD,
+                                   STREAM_RAMP)
+from .obs_adapter import tilt_of
 from zeus_link.qos import COMMAND_QOS, STATE_QOS
 from zeus_msgs.msg import NexusCommand, NexusState
 
@@ -53,6 +69,7 @@ class RLPolicyNode(Node):
         super().__init__('rl_policy')
         self.enable = bool(self.declare_parameter('enable', False).value)
         self.dry_run = bool(self.declare_parameter('dry_run', True).value)
+        self.release = bool(self.declare_parameter('release', True).value)
 
         self.policy = Policy()
         # Where the IMU really is, in base_link. Default is the training model's,
@@ -72,6 +89,7 @@ class RLPolicyNode(Node):
         self.confirmed = 0
         self.handshake_done = False
         self.engaged = False
+        self.staged = False         # armed into the soft-start hold, not released
         self.tick = 0
         self.fall = None
         self.last_tick = None
@@ -97,6 +115,7 @@ class RLPolicyNode(Node):
 
     def disengage(self):
         self.engaged = False
+        self.staged = False
         self.adapter.reset()
         self.filter.reset()
 
@@ -126,19 +145,68 @@ class RLPolicyNode(Node):
             self.disengage()
         elif not self.enable:
             pass
-        elif not self.engaged:
-            why = self.gate.engage_blockers(s, health_names)
+        elif not self.engaged and not self.staged:
+            why = self.gate.arm_blockers(s, health_names)
             if why:
-                self.get_logger().info("not engaging: " + "; ".join(why),
+                self.get_logger().info("not arming: " + "; ".join(why),
                                        throttle_duration_sec=2.0)
             else:
-                self.engaged, self.tick = True, 0
-                self.get_logger().info(f"guards clear at phase {s.phase:.3f}: engaged")
-                self.run_policy(s, cmd)
+                self.staged = True
+                self.get_logger().warn("arm guards clear: arming into HOLD - the board "
+                                       "ramps to the start pose over 3 s")
+                self.stage(s, cmd)
+        elif self.staged:
+            self.stage(s, cmd)
         else:
             self.run_policy(s, cmd)
 
         self.pub.publish(cmd)
+
+    def stage(self, s, cmd):
+        """Armed into the hold: keep it there, and release when allowed."""
+        q = np.asarray(s.quat, dtype=np.float64)
+        q = q / max(float(np.linalg.norm(q)), 1e-6)
+        if s.health or tilt_of(q) > self.policy.tilt_stop:
+            # Something went wrong while the robot was being moved to the pose.
+            # Stand down; the board ramps again from wherever it ends up.
+            self.get_logger().error(
+                "STOP during the soft start: "
+                + ("health faults: " + ", ".join(health_names(s.health)) if s.health
+                   else "torso past the tilt limit"))
+            self.disengage()
+            return
+
+        cmd.enable = True
+        cmd.hold = True
+        if s.stream_flags & STREAM_ARM_BLOCKED:
+            self.get_logger().warn("board refuses to arm: a joint has no position "
+                                   "(zero the ankles: ros2 run zeus_bringup zeus zero-ankles)",
+                                   throttle_duration_sec=2.0)
+            return
+        if s.stream_flags & STREAM_RAMP:
+            self.get_logger().info("ramping to the start pose", throttle_duration_sec=1.0)
+            return
+        if not s.stream_flags & STREAM_HOLD:
+            return      # not armed yet: the board is bringing the drives up
+
+        why = self.gate.arm_blockers(s, health_names) + self.gate.release_blockers(s)
+        if not self.release:
+            self.get_logger().info("HOLDING the start pose (release:=false)"
+                                   + (" - would not release: " + "; ".join(why) if why else ""),
+                                   throttle_duration_sec=2.0)
+            return
+        if why:
+            self.get_logger().info("holding, not releasing: " + "; ".join(why),
+                                   throttle_duration_sec=2.0)
+            return
+
+        self.staged = False
+        self.engaged, self.tick = True, 0
+        self.adapter.reset()
+        self.filter.reset()
+        self.get_logger().warn(f"released at phase {s.phase:.3f}: the gait starts, policy engaged")
+        cmd.hold = False
+        self.run_policy(s, cmd)
 
     def run_policy(self, s, cmd):
         why = self.gate.fallen(s, self.adapter)
@@ -173,8 +241,15 @@ class RLPolicyNode(Node):
         cmd.header.stamp = self.get_clock().now().to_msg()
         cmd.residual_rad = [0.0] * NUM_JOINTS
         cmd.enable = False
-        for _ in range(3):
-            self.pub.publish(cmd)
+        try:
+            for _ in range(3):
+                self.pub.publish(cmd)
+        except Exception:
+            # The context can die between rclpy.ok() and here on ctrl-c. The
+            # robot is idled regardless: commands stop, the link node sends
+            # enable false on its own way out, and the board's 200 ms link
+            # fault takes the drives if neither gets there.
+            pass
 
 
 def main(args=None):

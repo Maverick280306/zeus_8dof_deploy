@@ -8,7 +8,11 @@ Needs a built, sourced workspace, like zeus_link/test/e2e_fake_board.py:
   1. enable false   the board never arms
   2. enable true, default dry_run    arms, and says it is sending zero
   3. enable true, dry_run false      arms, residuals move, none rejected
-  4. wrong gait (fake_board's default stride)  the guards never let it arm
+  4. enable true, release false     arms into the soft-start hold, never walks
+  5. wrong gait (fake_board's default stride)  the guards never let it arm
+
+Every arm goes through the v11 soft start: arm into HOLD, ramp to the start
+pose, then (unless release:=false) release into the gait.
 """
 
 import json
@@ -93,10 +97,17 @@ check(bool(peak) and "DRY RUN" not in peak[-1] and "peak 0.0 deg" not in peak[-1
 late = log.count("tick late")
 check(late <= 1, f"250 Hz timer kept up with inference ({late} late windows)")
 
+print("enable true, release false - the first thing to run on the robot:", flush=True)
+s, log = scenario("hold", 9, "enable:=true", "release:=false")
+check(any(e[2] == "ARMED" and "HOLD" in e[3] for e in s["events"]), "board armed INTO A HOLD")
+check("HOLDING the start pose" in log, "node reports it is holding the start pose")
+check("released at phase" not in log, "and never released into the gait")
+check("Traceback" not in log, "no exception")
+
 print("wrong stored gait:", flush=True)
 s, log = scenario("wrong", 8, "enable:=true", "dry_run:=false", gait=False)
 check(not [e for e in s["events"] if e[2] == "ARMED"], "guards kept the board from arming")
-check("not engaging" in log, "and the node said why")
+check("not arming" in log, "and the node said why")
 
 print(f"\nlogs in {tmp}")
 if failures:

@@ -22,3 +22,16 @@ std_msgs/Header header
 
 float32[8] residual_rad         # rad, added to NexusState.ref_angle
 bool enable                     # false = stand down: idle the axes
+
+# Soft start (protocol v11). With enable, HOLD arms into a hold instead of the
+# gait: the board freezes the gait clock at its start phase, ramps every joint
+# from where it stands to that phase's pose over 3 s, and holds there until a
+# command arrives with hold false - then the stride starts. Without hold an arm
+# still ramps, into the running gait. The residual is ignored until the gait
+# runs. NexusState.stream_flags shows RAMP and HOLD while this happens.
+bool hold
+
+# Set both ankle drives' position to zero, once. Honoured only while the board
+# is NOT armed. Setting it asserts that both feet are flat right now: the ankle
+# drives come back from every reboot without a valid position.
+bool zero_ankles

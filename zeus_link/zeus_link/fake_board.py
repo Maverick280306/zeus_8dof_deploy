@@ -48,11 +48,12 @@ DEFAULT_LINK = "/tmp/zeus_fake_board"
 RESIDUAL_LIMIT_TURNS = 0.1
 LINK_TIMEOUT_S = 0.2
 MAX_REJECTS = 10
+SOFT_RAMP_S = 3.0      # soft_start.h SOFT_START_RAMP_S
 
 
 class FakeBoard:
 
-    def __init__(self, link_path: str, error_at: float = -1.0) -> None:
+    def __init__(self, link_path: str, error_at: float = -1.0, gait: str = "") -> None:
         self.master, slave = os.openpty()
         tty.setraw(slave)
         self._slave = slave
@@ -62,6 +63,18 @@ class FakeBoard:
         os.symlink(os.ttyname(slave), link_path)
 
         self.error_at = error_at
+        # --gait: play the policy's own stride (gait_q, gait_period from its
+        # policy.npz) instead of the synthetic one, and model what the soft
+        # start does to the legs - standing at zero while idle, the ramp, the
+        # hold, then the stride. Without it the synthetic stride is kept, which
+        # is what the "wrong stored gait" end-to-end case relies on.
+        self.gait_q = self.gait_period = None
+        if gait:
+            import numpy as np
+            z = np.load(gait, allow_pickle=False)
+            self.gait_q = np.asarray(z["gait_q"], dtype=np.float64)
+            self.gait_period = float(z["gait_period"])
+        self.ramp_from = [0.0] * P.NUM_JOINTS
         self.lock = threading.Lock()
         self.t0 = time.monotonic()
         self.safety = P.SAFETY_BOOT
@@ -77,6 +90,13 @@ class FakeBoard:
         self._accepted_seq = None       # None = new session, like s_seq_valid
         self._reject_run = 0
         self._stop = threading.Event()
+        # Soft start (v11), the board's soft_start.c in miniature.
+        self.soft = "idle"              # idle | ramp | hold | run
+        self.soft_hold = False          # HOLD as it stands
+        self.soft_ramp_held = False     # the ramp heads for the frozen pose
+        self.soft_t0 = 0.0
+        self.zero_prev = False
+        self.ankles_zeroed = False
 
     # ---- state machine ------------------------------------------------------
 
@@ -97,6 +117,13 @@ class FakeBoard:
         self._last_cmd_seq = seq
         s["commands"] += 1
         self.last_cmd = time.monotonic()
+
+        zero = bool(flags & P.CMD_ZERO_ANKLES)
+        if zero and not self.zero_prev and self.safety != P.SAFETY_ARMED:
+            self.ankles_zeroed = True
+            s.setdefault("ankle_zeroings", 0)
+            s["ankle_zeroings"] += 1
+        self.zero_prev = zero
 
         if not flags & P.CMD_ENABLE:
             s["disables"] += 1
@@ -120,7 +147,14 @@ class FakeBoard:
             return
         self._reject_run = 0
         self._accepted_seq = seq
-        self._set(P.SAFETY_ARMED, "enable true")
+        hold = bool(flags & P.CMD_HOLD)
+        if self.safety != P.SAFETY_ARMED:
+            self.soft, self.soft_t0 = "ramp", time.monotonic()
+            self.soft_ramp_held = hold
+        self.soft_hold = hold
+        if self.soft == "hold" and not hold:
+            self.soft = "run"
+        self._set(P.SAFETY_ARMED, "enable true" + (", HOLD" if hold else ""))
 
     def _on_gains(self, frame: bytes) -> None:
         """Gains land only between runs, exactly as the board treats them."""
@@ -187,25 +221,66 @@ class FakeBoard:
                     self._set(P.SAFETY_FAULT, "no command for 200 ms")
                 safety = self.safety
 
-            phase = (seq / (1000.0 * 1.26)) % 1.0
+            with self.lock:
+                if safety != P.SAFETY_ARMED:
+                    self.soft = "idle"
+                elif self.soft == "ramp" and now - self.soft_t0 >= SOFT_RAMP_S:
+                    self.soft = "hold" if (self.soft_ramp_held and self.soft_hold) else "run"
+                soft = self.soft
+                frozen = (soft == "ramp" and self.soft_ramp_held) or soft == "hold"
+                stream = (P.STREAM_GAIT_LIVE
+                          | (P.STREAM_RAMP if soft == "ramp" else 0)
+                          | (P.STREAM_HOLD if soft == "hold" else 0)
+                          | (P.STREAM_ANKLES_ZEROED if self.ankles_zeroed else 0))
+            if frozen:
+                clock_seq = 0.0
+            else:
+                clock_seq = getattr(self, "_clock", 0.0) + 1.0
+            self._clock = clock_seq
+            period = self.gait_period if self.gait_q is not None else 1.26
+            phase = (clock_seq / (1000.0 * period)) % 1.0
             w = 2.0 * math.pi * phase
             errors = [0] * P.NUM_JOINTS
             if self.error_at >= 0 and self.error_at <= now - self.t0 < self.error_at + 1.0:
                 errors[P.JOINT_INDEX["right_ankle_pitch"]] = 0x08000200
+            if self.gait_q is None:
+                ref = [0.2 * math.sin(w + j + 0.05) for j in range(P.NUM_JOINTS)]
+                pos = [0.2 * math.sin(w + j) for j in range(P.NUM_JOINTS)]
+                extra = {}
+            else:
+                n = self.gait_q.shape[0]
+                x = phase * n
+                i = int(x) % n
+                f = x - int(x)
+                ref = list((1.0 - f) * self.gait_q[i] + f * self.gait_q[(i + 1) % n])
+                if soft == "idle":
+                    pos = [0.0] * P.NUM_JOINTS          # standing, the zero pose
+                    self.ramp_from = list(pos)
+                elif soft == "ramp":
+                    xr = min(1.0, (now - self.soft_t0) / SOFT_RAMP_S)
+                    sm = xr * xr * (3.0 - 2.0 * xr)
+                    pos = [a + sm * (b - a) for a, b in zip(self.ramp_from, ref)]
+                else:
+                    pos = list(ref)
+                # A healthy, converged estimator over a robot on its feet -
+                # what the policy's arm guards need to see.
+                extra = dict(fused_valid=P.FUSION_OK, fk_valid=3,
+                             quat=[1.0, 0.0, 0.0, 0.0], pelvis_z=0.77,
+                             foot_z=[0.0, 0.0], contact=[1.0, 1.0])
             pkt = pack_state(state_values(
                 seq=seq, timestamp_us=(seq * 1000) & 0xFFFFFFFF, phase=phase,
-                joint_pos=[0.2 * math.sin(w + j) for j in range(P.NUM_JOINTS)],
+                joint_pos=pos,
                 joint_vel=[0.2 * w * math.cos(w + j) for j in range(P.NUM_JOINTS)],
-                ref_angle=[0.2 * math.sin(w + j + 0.05) for j in range(P.NUM_JOINTS)],
+                ref_angle=ref,
                 health=0 if link_ok else P.HEALTH_LINK, safety_state=safety,
                 act_state=[8 if safety == P.SAFETY_ARMED else 1] * P.NUM_JOINTS,
                 # What the drives were told: the reference the board is playing
                 # while armed, and NaN while nothing is being driven.
-                act_target=([0.2 * math.sin(w + j + 0.05) for j in range(P.NUM_JOINTS)]
-                            if safety == P.SAFETY_ARMED
+                act_target=(list(ref) if safety == P.SAFETY_ARMED
                             else [float("nan")] * P.NUM_JOINTS),
                 gains_seq=self.gains_seq,
-                act_error=errors))
+                stream_flags=stream,
+                act_error=errors, **extra))
             try:
                 os.write(self.master, pkt)
             except OSError:
@@ -235,11 +310,13 @@ def main(argv=None) -> int:
     ap.add_argument("--link", default=DEFAULT_LINK, help="symlink to create for the pty")
     ap.add_argument("--duration", type=float, default=0.0, help="seconds; 0 runs until ctrl-c")
     ap.add_argument("--summary", help="write a JSON summary here on exit")
+    ap.add_argument("--gait", default="",
+                    help="a policy.npz: play its stride, and model the soft start on the legs")
     ap.add_argument("--error-at", type=float, default=-1.0,
                     help="report an ODrive error on right_ankle_pitch for 1 s from this time")
     a = ap.parse_args(argv)
 
-    board = FakeBoard(a.link, error_at=a.error_at)
+    board = FakeBoard(a.link, error_at=a.error_at, gait=a.gait)
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: board.stop())
     print(f"fake STM32 streaming 1 kHz on {a.link}\n"

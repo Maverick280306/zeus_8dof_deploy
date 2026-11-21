@@ -6,14 +6,36 @@ import struct
 from zeus_link import nexus_proto as P
 
 
-def test_sizes_and_version_match_firmware_v9():
+def test_sizes_and_version_match_firmware_v11():
     # link_proto.h: nexus_state_t 426, nexus_cmd_t 44, nexus_gains_t 106,
-    # NEXUS_PROTO_VERSION 9. The state packet lost 8 bytes at v9: contact[]
-    # went from four floats to two when each foot dropped to one switch.
+    # NEXUS_PROTO_VERSION 11. The bytes are v9's (the state packet lost 8 bytes
+    # at v9 when each foot dropped to one switch); v11 changed only what flag
+    # bits mean, and the version moved because one of them, HOLD, is a safety
+    # meaning a v9 board would ignore.
     assert P.STATE_SIZE == 426
     assert P.COMMAND_SIZE == 44
     assert P.GAINS_SIZE == 106
-    assert P.PROTO_VERSION == 9
+    assert P.PROTO_VERSION == 11
+
+
+def test_soft_start_flags_are_distinct_bits_in_their_fields():
+    # A HOLD that shares a bit with ENABLE, or a stream flag on top of
+    # GAIT_LIVE, would read as the wrong thing on the other side.
+    cmd = [P.CMD_ENABLE, P.CMD_HOLD, P.CMD_ZERO_ANKLES]
+    stream = [P.STREAM_GAIT_LIVE, P.STREAM_LEG_TEST, P.STREAM_RAMP, P.STREAM_HOLD,
+              P.STREAM_ANKLES_ZEROED, P.STREAM_ARM_BLOCKED]
+    for group, width in ((cmd, 16), (stream, 8)):
+        assert all(b and (b & (b - 1)) == 0 and b < (1 << width) for b in group)
+        assert len(set(group)) == len(group)
+
+
+def test_hold_reaches_the_wire():
+    # The command packet carries flags in its last field before the crc; HOLD
+    # and ENABLE together must both be there for the board to arm into a hold.
+    raw = P.NexusCommand(seq=7, residual=[0.0] * P.NUM_JOINTS,
+                         flags=P.CMD_ENABLE | P.CMD_HOLD).pack()
+    f = struct.unpack(P.COMMAND_FORMAT, raw)
+    assert f[2] == 11 and f[-2] == (P.CMD_ENABLE | P.CMD_HOLD)
 
 
 def test_crc_is_ccitt_false():

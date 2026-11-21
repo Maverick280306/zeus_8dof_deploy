@@ -35,7 +35,7 @@ from typing import Optional
 
 import numpy as np
 
-from zeus_link.nexus_proto import POLICY_INDEX
+from zeus_link.nexus_proto import POLICY_INDEX, STREAM_HOLD, STREAM_RAMP
 
 from .policy_runtime import Policy
 
@@ -204,6 +204,13 @@ class Guards:
         self.phase_rate = None       # strides per second, once measured
 
     def watch_clock(self, state) -> None:
+        # Measure only a clock that is free-running. Through a soft-start ramp
+        # or hold the board freezes it at the start phase on purpose, and a
+        # rate measured across that would read as a broken stride clock.
+        flags = int(getattr(state, "stream_flags", 1))
+        if (flags & 1) == 0 or flags & (STREAM_RAMP | STREAM_HOLD):
+            self._seq0 = None
+            return
         if self._seq0 is None:
             self._seq0, self._phase0 = state.seq, float(state.phase)
             return
@@ -213,6 +220,37 @@ class Guards:
             self._seq0, self._phase0 = state.seq, float(state.phase)
 
     def engage_blockers(self, state, health_names) -> list:
+        """Everything: arming and releasing. Empty means the policy may drive."""
+        return self.arm_blockers(state, health_names) + self.release_blockers(state)
+
+    def release_blockers(self, state) -> list:
+        """
+        What stops the policy taking over from a soft-start HOLD: the board
+        must be standing at the start pose, at a phase this network was shown
+        to walk from, with every joint within POSE_TOL of the reference.
+
+        This is the half of the old single check that a standing robot could
+        never pass. The board's ramp is what gets it there now.
+        """
+        why = []
+        lo, hi = self.START_WINDOW
+        phase = float(state.phase) % 1.0
+        if hi < phase < lo:
+            why.append(f"phase {float(state.phase):.2f} is outside the start window")
+
+        off = np.abs(np.asarray(state.joint_pos, dtype=np.float64)
+                     - np.asarray(state.ref_angle, dtype=np.float64))
+        if not np.isfinite(off).all() or off.max() > self.POSE_TOL_RAD:
+            j = int(np.nanargmax(off)) if np.isfinite(off).any() else 0
+            why.append(f"robot is not at the reference pose: {self.p.joint_names[j]} off by "
+                       f"{math.degrees(float(off[j])):.1f} deg")
+        return why
+
+    def arm_blockers(self, state, health_names) -> list:
+        """
+        What stops arming at all - into the hold, which moves the robot to the
+        start pose. Everything except where the robot is standing.
+        """
         why = []
         if not state.stream_flags & 1:          # NexusState.STREAM_GAIT_LIVE
             why.append("gait is not live (STREAM_GAIT_LIVE clear)")
@@ -239,18 +277,6 @@ class Guards:
         q = np.asarray(state.quat, dtype=np.float64)
         if tilt_of(q / max(float(np.linalg.norm(q)), 1e-6)) > self.p.tilt_stop:
             why.append("torso past the tilt limit")
-
-        lo, hi = self.START_WINDOW
-        phase = float(state.phase) % 1.0
-        if hi < phase < lo:
-            why.append(f"phase {float(state.phase):.2f} is outside the start window")
-
-        off = np.abs(np.asarray(state.joint_pos, dtype=np.float64)
-                     - np.asarray(state.ref_angle, dtype=np.float64))
-        if not np.isfinite(off).all() or off.max() > self.POSE_TOL_RAD:
-            j = int(np.nanargmax(off)) if np.isfinite(off).any() else 0
-            why.append(f"robot is not at the reference pose: {self.p.joint_names[j]} off by "
-                       f"{math.degrees(float(off[j])):.1f} deg")
         return why
 
     def fallen(self, state, adapter: ObsAdapter) -> Optional[str]:

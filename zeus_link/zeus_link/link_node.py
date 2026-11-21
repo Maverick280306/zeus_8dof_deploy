@@ -13,6 +13,8 @@ Services:
                                           enable false, and send one now
     /zeus/resume       std_srvs/Trigger   release that latch
     /zeus/set_gains    zeus_msgs/SetGains write drive gains, between runs only
+    /zeus/zero_ankles  std_srvs/Trigger   both ankle drives' position := 0, while
+                                          disarmed only - asserts the feet are flat
 
 Parameters (zeus_bringup/config/link.yaml):
     port                 "auto" or a device path
@@ -31,6 +33,7 @@ queued - so /zeus/state cannot go stale. The periodic log shows both rates.
 
 from __future__ import annotations
 
+import math
 import threading
 import time
 
@@ -47,8 +50,9 @@ from .convert import (RESIDUAL_LIMIT_RAD, fill_state_msg, joint_state_arrays,
                       names_of, residual_rad_to_turns)
 from .flight_log import FlightRecorder, default_path
 from .nexus_link import NexusLink
-from .nexus_proto import (HEALTH_NAMES, JOINT_NAMES, NUM_JOINTS, PROTO_VERSION,
-                          SAFETY_NAMES, STREAM_LEG_TEST)
+from .nexus_proto import (CMD_HOLD, CMD_ZERO_ANKLES, HEALTH_NAMES, JOINT_INDEX, JOINT_NAMES,
+                          NUM_JOINTS, PROTO_VERSION, SAFETY_ARMED, SAFETY_NAMES,
+                          STREAM_ANKLES_ZEROED, STREAM_LEG_TEST)
 from .odrive_names import axis_state_name, error_names
 from .ports import PortError, find_port
 from .qos import COMMAND_QOS, STATE_QOS
@@ -85,6 +89,7 @@ class LinkNode(Node):
         self.create_service(Trigger, "zeus/stand_down", self._on_stand_down)
         self.create_service(Trigger, "zeus/resume", self._on_resume)
         self.create_service(SetGains, "zeus/set_gains", self._on_set_gains)
+        self.create_service(Trigger, "zeus/zero_ankles", self._on_zero_ankles)
 
         self._stood_down = False
         self._published = 0
@@ -246,14 +251,71 @@ class LinkNode(Node):
                 "reject this command" % (RESIDUAL_LIMIT_RAD, ", ".join(names_of(over))),
                 throttle_duration_sec=1.0)
 
-        self._send(turns, bool(msg.enable) and not self._stood_down)
+        flags = 0
+        if getattr(msg, "hold", False):
+            flags |= CMD_HOLD
+        if getattr(msg, "zero_ankles", False):
+            flags |= CMD_ZERO_ANKLES
+        self._send(turns, bool(msg.enable) and not self._stood_down, flags)
         self._commands += 1
 
-    def _send(self, turns, enable: bool) -> None:
+    def _send(self, turns, enable: bool, flags: int = 0) -> None:
         try:
-            self._link.send_command(turns, enable=enable)
+            self._link.send_command(turns, enable=enable, flags=flags)
         except Exception as exc:    # serial write on an unplugged board, mostly
             self.get_logger().error(f"USB write failed: {exc}", throttle_duration_sec=1.0)
+
+    def _on_zero_ankles(self, _req, resp):
+        """
+        Both ankle drives: position := 0. The feet must be flat - this call is
+        the operator saying so; the board cannot see the feet.
+
+        Refused while armed: the board would ignore it anyway, and the frames
+        that carry it have enable false, which would stand a running robot
+        down. Succeeds only once the board reports the zeroing done AND both
+        ankles read within half a degree of zero - the drives can drop a
+        command, and "sent" is not "set".
+        """
+        pkt = self._link.latest()
+        if pkt is None:
+            resp.success, resp.message = False, "no state from the board yet"
+            return resp
+        if pkt.safety_state == SAFETY_ARMED:
+            resp.success, resp.message = False, "refused: the robot is armed - stand down first"
+            return resp
+
+        ankles = (JOINT_INDEX["left_ankle_pitch"], JOINT_INDEX["right_ankle_pitch"])
+        # A rising edge of the flag, then the flag cleared, so a second call
+        # makes a second edge.
+        for flags in (CMD_ZERO_ANKLES,) * 3 + (0,) * 3:
+            self._send([0.0] * NUM_JOINTS, enable=False, flags=flags)
+            time.sleep(0.004)
+
+        # This callback holds the executor, so no other command is forwarded
+        # while it waits. Keep the link alive with enable-false frames, or 200 ms
+        # of silence faults the board.
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            self._send([0.0] * NUM_JOINTS, enable=False)
+            pkt = self._link.latest()
+            if (pkt is not None and pkt.stream_flags & STREAM_ANKLES_ZEROED and
+                    all(math.isfinite(pkt.joint_pos[i]) and abs(pkt.joint_pos[i]) < math.radians(0.5)
+                        for i in ankles)):
+                resp.success = True
+                resp.message = ("ankles zeroed: left %+.2f deg, right %+.2f deg"
+                                % tuple(math.degrees(pkt.joint_pos[i]) for i in ankles))
+                self.get_logger().warn(resp.message)
+                return resp
+            time.sleep(0.004)
+
+        pkt = self._link.latest()
+        now = ", ".join(f"{JOINT_NAMES[i]} {math.degrees(pkt.joint_pos[i]):+.2f} deg"
+                        for i in ankles) if pkt is not None else "no state"
+        resp.success = False
+        resp.message = ("the board did not confirm within 1 s "
+                        f"(zeroed flag {'set' if pkt is not None and pkt.stream_flags & STREAM_ANKLES_ZEROED else 'clear'}; {now})")
+        self.get_logger().error("zero_ankles: " + resp.message)
+        return resp
 
     def _on_stand_down(self, _req, resp):
         self._stood_down = True

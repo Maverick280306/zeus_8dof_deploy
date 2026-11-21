@@ -2,14 +2,24 @@
 The robot plus something that commands it.
 
     ros2 launch zeus_bringup walk.launch.py                          # watch: stays IDLE
-    ros2 launch zeus_bringup walk.launch.py enable:=true             # walk the stored gait
+    ros2 launch zeus_bringup walk.launch.py enable:=true             # arm, ramp to the start pose, STAND
+    ros2 launch zeus_bringup walk.launch.py enable:=true hold:=false # arm, ramp into the gait, walk it
     ros2 launch zeus_bringup walk.launch.py policy:=rl enable:=true  # RL, sending zero
     ros2 launch zeus_bringup walk.launch.py policy:=rl enable:=true dry_run:=false  # RL, live
 
     policy   passthrough   zero residual: the STM32's stored gait, uncorrected
              rl            zeus_control_interface rl_policy_node
     enable   false keeps the board IDLE while commands still flow (safe default)
-    dry_run  rl only. true runs the policy but sends zero residual (safe default)
+    dry_run  rl only. true runs the policy but sends zero residual (safe default).
+             Zero residual is the stored gait: a released dry run WALKS.
+    hold     passthrough only. true (default) arms into the soft-start hold and
+             stands at the gait's start pose; false ramps into the running gait.
+    release  rl only. true (default) releases the hold into the gait once the
+             guards pass; false arms, ramps to the start pose and holds there.
+
+Every arm now ramps over 3 s from where the robot stands (protocol v11 soft
+start, stm32_zeuss Appli/App/soft_start.h). Zero the ankles first, feet flat:
+    ros2 run zeus_bringup zeus zero-ankles
 
 Every robot.launch.py argument (port, rerun, rerun_host, ...) works here too.
 
@@ -32,6 +42,8 @@ def generate_launch_description():
     policy = LaunchConfiguration('policy')
     enable = ParameterValue(LaunchConfiguration('enable'), value_type=bool)
     dry_run = ParameterValue(LaunchConfiguration('dry_run'), value_type=bool)
+    hold = ParameterValue(LaunchConfiguration('hold'), value_type=bool)
+    release = ParameterValue(LaunchConfiguration('release'), value_type=bool)
 
     def is_policy(name):
         return IfCondition(PythonExpression(["'", policy, "' == '", name, "'"]))
@@ -41,16 +53,18 @@ def generate_launch_description():
                               choices=['passthrough', 'rl']),
         DeclareLaunchArgument('enable', default_value='false'),
         DeclareLaunchArgument('dry_run', default_value='true'),
+        DeclareLaunchArgument('hold', default_value='true'),
+        DeclareLaunchArgument('release', default_value='true'),
 
         IncludeLaunchDescription(PythonLaunchDescriptionSource(PathJoinSubstitution(
             [FindPackageShare('zeus_bringup'), 'launch', 'robot.launch.py']))),
 
         Node(package='zeus_link', executable='gait_passthrough_node', name='gait_passthrough',
-             condition=is_policy('passthrough'), parameters=[{'enable': enable}],
+             condition=is_policy('passthrough'), parameters=[{'enable': enable, 'hold': hold}],
              output='screen', emulate_tty=True),
 
         Node(package='zeus_control_interface', executable='rl_policy_node',
              name='rl_policy', condition=is_policy('rl'),
-             parameters=[{'enable': enable, 'dry_run': dry_run}],
+             parameters=[{'enable': enable, 'dry_run': dry_run, 'release': release}],
              output='screen', emulate_tty=True),
     ])

@@ -264,6 +264,29 @@ def cmd_stop(args) -> int:
     return 0 if resp.success else 1
 
 
+def cmd_zero_ankles(args) -> int:
+    """Both ankle drives' position := 0. The feet must be flat."""
+    from std_srvs.srv import Trigger
+
+    if not args.yes:
+        print("This tells both ankle drives that where they are NOW is zero.\n"
+              "Both feet must be FLAT on the ground, the robot standing in its zero pose.\n"
+              "The board refuses it while armed.")
+        try:
+            if input("Are both feet flat? [y/N] ").strip().lower() not in ("y", "yes"):
+                print("not zeroed")
+                return 1
+        except EOFError:
+            print("not zeroed (no answer)")
+            return 1
+
+    ros = Ros("zeus_zero_ankles")
+    resp = ros.call(Trigger, "/zeus/zero_ankles", Trigger.Request())
+    ros.close()
+    print(resp.message if resp.success else f"zero_ankles FAILED: {resp.message}")
+    return 0 if resp.success else 1
+
+
 # ---------------------------------------------------------------- gains
 
 def cmd_gains(args) -> int:
@@ -458,6 +481,11 @@ def main(argv=None) -> int:
 
     s = sub.add_parser("stop", help="stand down: the drives go limp")
     s.set_defaults(func=cmd_stop)
+
+    z = sub.add_parser("zero-ankles",
+                       help="set both ankles' position to zero - feet flat, robot disarmed")
+    z.add_argument("--yes", action="store_true", help="skip the feet-flat question")
+    z.set_defaults(func=cmd_zero_ankles)
 
     g = sub.add_parser("gains", help="show, push or change the drive gains")
     g.add_argument("action", choices=["show", "push", "set"])

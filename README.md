@@ -316,6 +316,12 @@ packet, which from here looks exactly like a dead link.
 
 Step by step, the first time. Each step proves the one before it.
 
+**Every arm ramps** (protocol v11 soft start, `stm32_zeuss/Appli/App/soft_start.h`):
+the board moves each joint from where it stands to the gait over 3 s instead of
+jumping there. With `hold` it ramps to the start pose and stands; the stride starts
+only when the hold is released. The board and this workspace must both be v11 -
+a mismatched pair refuses to talk.
+
 ```bash
 # 1. Is the link alive? No ROS; sends nothing to the board.
 ros2 run zeus_link link_check --joints
@@ -328,10 +334,23 @@ ros2 topic hz /zeus/state                  # another terminal
 # 3. Commands flowing, enable false: the board reaches IDLE, nothing moves.
 ros2 launch zeus_bringup walk.launch.py
 
-# 4. Walk the stored gait, no policy.
+# 3b. Zero the ankles, feet FLAT, robot disarmed (every session: the ankle
+#     drives come back from each reboot with no position, and the board will
+#     not arm while any joint has none). In a second terminal:
+ros2 run zeus_bringup zeus zero-ankles
+
+# 4. Arm, ramp to the gait's start pose over 3 s, and STAND there. Nothing walks.
+#    This is the first motion on the robot: signs, gains and scaling under load.
 ros2 launch zeus_bringup walk.launch.py enable:=true
 
-# 5. The policy, sending zero: every guard must pass, the residual is only logged.
+# 4b. Arm, ramp into the running gait, and walk the stored gait - no policy.
+ros2 launch zeus_bringup walk.launch.py enable:=true hold:=false
+
+# 5. The policy, holding: arms into the hold and stays at the start pose.
+ros2 launch zeus_bringup walk.launch.py policy:=rl enable:=true release:=false
+
+# 5b. The policy, sending zero: releases into the gait - which WALKS the
+#     stored gait - and only logs the residual it would have sent.
 ros2 launch zeus_bringup walk.launch.py policy:=rl enable:=true
 
 # 6. The policy, live.

@@ -217,6 +217,41 @@ def test_stride_clock_is_measured_across_the_wrap(policy):
     assert g.phase_rate == pytest.approx(1.0 / policy.gait.period, rel=1e-6)
 
 
+def test_a_standing_robot_may_arm_but_not_release(policy):
+    # The whole point of the soft start: a robot standing at zero is 20-35 deg
+    # from the start pose. That must NOT stop it arming into the hold - the
+    # board's ramp is what moves it - and MUST stop the policy taking over
+    # until it has arrived.
+    g = Guards(policy)
+    g.phase_rate = 1.0 / policy.gait.period
+    standing = state(policy, joint_pos=[0.0] * P.NUM_JOINTS, phase=0.0,
+                     ref_angle=list(policy.gait.ref(0.0)))
+    assert g.arm_blockers(standing, lambda m: []) == []
+    why = g.release_blockers(standing)
+    assert any("reference pose" in w for w in why)
+
+    arrived = state(policy, joint_pos=list(policy.gait.ref(0.0)), phase=0.0,
+                    ref_angle=list(policy.gait.ref(0.0)))
+    assert g.release_blockers(arrived) == []
+
+
+def test_the_stride_clock_is_not_measured_across_a_hold(policy):
+    # Held at the start phase the board's clock stands still on purpose. A rate
+    # measured across that would read as a stride clock at 0 Hz and block
+    # release forever - or, measured into a hold, a rate that is neither.
+    g = Guards(policy)
+    rate = 1.0 / policy.gait.period
+    g.watch_clock(SimpleNamespace(seq=0, phase=0.2, stream_flags=P.STREAM_GAIT_LIVE))
+    g.watch_clock(SimpleNamespace(seq=500, phase=(0.2 + 0.5 * rate) % 1.0,
+                                  stream_flags=P.STREAM_GAIT_LIVE))
+    assert g.phase_rate == pytest.approx(rate, rel=1e-6)
+
+    held = P.STREAM_GAIT_LIVE | P.STREAM_HOLD
+    for k in range(5):
+        g.watch_clock(SimpleNamespace(seq=600 + 500 * k, phase=0.0, stream_flags=held))
+    assert g.phase_rate == pytest.approx(rate, rel=1e-6)
+
+
 def test_fall_conditions_are_the_training_ones(policy):
     g, a = Guards(policy), ObsAdapter(policy)
     assert g.fallen(state(policy), a) is None

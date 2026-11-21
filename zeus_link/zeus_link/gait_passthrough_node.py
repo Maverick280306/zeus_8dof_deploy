@@ -11,6 +11,15 @@ baseline any RL policy has to beat.
 
     ros2 run zeus_link gait_passthrough_node                      # watch only
     ros2 run zeus_link gait_passthrough_node --ros-args -p enable:=true
+                                    # arm, ramp to the start pose, and STAND there
+    ros2 run zeus_link gait_passthrough_node --ros-args -p enable:=true -p hold:=false
+                                    # arm, ramp into the running gait, and walk it
+
+hold (default true) is the soft start's HOLD flag (protocol v11): the board
+freezes its gait clock at the start phase, ramps every joint over 3 s from where
+it stands to that phase's pose, and holds it. With hold false the arm still
+ramps - into the stride in progress - but then the gait plays. Arming can never
+jump straight to the gait any more; see stm32_zeuss Appli/App/soft_start.h.
 
 On start it sends enable false until the handshake is CONFIRMED: the command
 publisher is matched to the link node, and the board has reported IDLE or ARMED
@@ -37,7 +46,7 @@ from rclpy.node import Node
 from zeus_msgs.msg import NexusCommand, NexusState
 
 from .nexus_proto import (HEALTH_NAMES, NUM_JOINTS, SAFETY_ARMED, SAFETY_IDLE,
-                          SAFETY_NAMES)
+                          SAFETY_NAMES, STREAM_ARM_BLOCKED, STREAM_HOLD, STREAM_RAMP)
 from .qos import COMMAND_QOS, STATE_QOS
 
 HANDSHAKE_SEC = 0.2
@@ -50,6 +59,7 @@ class GaitPassthroughNode(Node):
 
         rate = float(self.declare_parameter("rate_hz", 250.0).value)
         self._enable = bool(self.declare_parameter("enable", False).value)
+        self._hold = bool(self.declare_parameter("hold", True).value)
 
         self._pub = self.create_publisher(NexusCommand, "zeus/command", COMMAND_QOS)
         self.create_subscription(NexusState, "zeus/state", self._on_state, STATE_QOS)
@@ -57,7 +67,9 @@ class GaitPassthroughNode(Node):
         self._cmd = NexusCommand()
         self._cmd.residual_rad = [0.0] * NUM_JOINTS
         self._cmd.enable = False
+        self._cmd.hold = self._hold
         self._safety = None
+        self._soft = None
         self._health = 0
         self._handshake_ticks = max(1, int(round(HANDSHAKE_SEC * rate)))
         self._confirmed = 0
@@ -65,10 +77,14 @@ class GaitPassthroughNode(Node):
 
         self.create_timer(1.0 / rate, self._tick)
 
-        if self._enable:
+        if self._enable and self._hold:
             self.get_logger().warn(
-                f"ENABLED - zero residual at {rate:g} Hz. The robot will arm and "
-                "walk the stored gait.")
+                f"ENABLED with HOLD - zero residual at {rate:g} Hz. The robot will arm, "
+                "ramp to the gait's start pose over 3 s, and stand there.")
+        elif self._enable:
+            self.get_logger().warn(
+                f"ENABLED - zero residual at {rate:g} Hz. The robot will arm, ramp "
+                "into the running gait over 3 s, and walk it.")
         else:
             self.get_logger().info(
                 f"zero residual at {rate:g} Hz with enable false: the board stays "
@@ -106,6 +122,15 @@ class GaitPassthroughNode(Node):
 
     def _on_state(self, msg: NexusState) -> None:
         self._health = msg.health
+
+        soft = ("ramping to the start pose" if msg.stream_flags & STREAM_RAMP else
+                "holding the start pose" if msg.stream_flags & STREAM_HOLD else
+                "arm refused: a joint has no position (an ankle not zeroed?)"
+                if msg.stream_flags & STREAM_ARM_BLOCKED else None)
+        if soft != self._soft:
+            if soft is not None:
+                self.get_logger().info(f"board: {soft}")
+            self._soft = soft
         if msg.safety_state != self._safety:
             self._safety = msg.safety_state
             name = SAFETY_NAMES.get(msg.safety_state, str(msg.safety_state))
