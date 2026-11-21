@@ -19,6 +19,9 @@ Parameters (zeus_bringup/config/link.yaml):
     joint_state_rate_hz  /joint_states rate; 0 disables it
     stats_period_sec     how often to log link health
     frame_id             header.frame_id for published messages
+    record               true: flight-record every byte, both directions,
+                         from the moment the port opens (flight_log.py)
+    record_dir           where recordings go; one zeus_<date>_<time>.flt per run
 
 Reading and publishing are decoupled. NexusLink's thread drains the port at
 1 kHz no matter what; this node's publish thread takes the newest packet each
@@ -42,9 +45,10 @@ from zeus_msgs.msg import NexusCommand, NexusState
 
 from .convert import (RESIDUAL_LIMIT_RAD, fill_state_msg, joint_state_arrays,
                       names_of, residual_rad_to_turns)
+from .flight_log import FlightRecorder, default_path
 from .nexus_link import NexusLink
-from .nexus_proto import (HEALTH_NAMES, JOINT_NAMES, NUM_JOINTS, SAFETY_NAMES,
-                          STREAM_LEG_TEST)
+from .nexus_proto import (HEALTH_NAMES, JOINT_NAMES, NUM_JOINTS, PROTO_VERSION,
+                          SAFETY_NAMES, STREAM_LEG_TEST)
 from .odrive_names import axis_state_name, error_names
 from .ports import PortError, find_port
 from .qos import COMMAND_QOS, STATE_QOS
@@ -66,6 +70,11 @@ class LinkNode(Node):
         self._js_rate = float(self.declare_parameter("joint_state_rate_hz", 100.0).value)
         stats_period = float(self.declare_parameter("stats_period_sec", 5.0).value)
         self._frame_id = str(self.declare_parameter("frame_id", "base_link").value)
+        # On by default. The run worth looking at afterwards is never the one
+        # somebody remembered to record, and at ~1.5 GB an hour it costs less
+        # than having to reproduce a fall.
+        record = bool(self.declare_parameter("record", True).value)
+        record_dir = str(self.declare_parameter("record_dir", "~/zeus_logs").value)
 
         self._port = find_port(requested)   # PortError propagates to main()
 
@@ -97,7 +106,19 @@ class LinkNode(Node):
 
         self._stop = threading.Event()
         self._new_packet = threading.Event()
-        self._link = NexusLink(self._port, on_packet=lambda _pkt: self._new_packet.set())
+        # Created BEFORE the link starts, so the recording begins with the
+        # first byte the board sends - t+0 - not with the first packet parsed.
+        self._recorder = None
+        if record:
+            try:
+                self._recorder = FlightRecorder(default_path(record_dir), port=self._port,
+                                                proto_version=PROTO_VERSION)
+            except OSError as exc:
+                self.get_logger().error(f"flight recorder could not start: {exc}")
+        self._recorder_warned = False
+
+        self._link = NexusLink(self._port, on_packet=lambda _pkt: self._new_packet.set(),
+                               recorder=self._recorder)
         self._link.start()
 
         self._pub_thread = threading.Thread(target=self._publish_loop,
@@ -110,6 +131,9 @@ class LinkNode(Node):
             f"link open on {self._port}"
             + ("" if requested == "auto" else " (set by the port parameter)")
             + f"; publishing zeus/state, joint_states at {self._js_rate:g} Hz")
+        self.get_logger().info(
+            f"flight recording to {self._recorder.path}" if self._recorder is not None
+            else "flight recording OFF")
 
     # ---- STM32 -> ROS -----------------------------------------------------
 
@@ -298,6 +322,16 @@ class LinkNode(Node):
         dt = max(now - self._last_report, 1e-6)
         stats = self._link.stats
 
+        rec = self._recorder
+        if rec is not None:
+            # Flush on the report timer: a power cut loses at most one period.
+            rec.flush()
+            if rec.error and not self._recorder_warned:
+                self._recorder_warned = True
+                self.get_logger().error(
+                    f"flight recording STOPPED ({rec.error}); the robot is unaffected. "
+                    f"{rec.bytes_written / 1e6:.0f} MB were saved in {rec.path}")
+
         rx_hz = (stats.packets - self._last_rx_packets) / dt
         pub_hz = (self._published - self._last_published) / dt
         cmd_hz = (self._commands - self._last_commands) / dt
@@ -316,7 +350,8 @@ class LinkNode(Node):
 
         self.get_logger().info(
             f"rx {rx_hz:6.1f} Hz | published {pub_hz:6.1f} Hz | commands {cmd_hz:5.1f} Hz | "
-            f"{stats}" + (" | STOOD DOWN" if self._stood_down else ""))
+            f"{stats}" + (" | STOOD DOWN" if self._stood_down else "")
+            + (f" | rec {rec.bytes_written / 1e6:.0f} MB" if rec is not None and rec.active else ""))
 
     def destroy_node(self) -> None:
         # Hand the actuators back before letting go of the port, so a stopped
@@ -340,6 +375,11 @@ class LinkNode(Node):
             self._stop.set()
             self._pub_thread.join(timeout=1.0)
             self._link.stop()
+            if self._recorder is not None:
+                self._recorder.close()
+                self.get_logger().info(
+                    f"flight recording saved: {self._recorder.path} "
+                    f"({self._recorder.bytes_written / 1e6:.1f} MB)")
             super().destroy_node()
 
 

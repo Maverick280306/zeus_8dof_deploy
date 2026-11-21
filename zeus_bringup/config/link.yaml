@@ -12,3 +12,11 @@ zeus_link:
     stats_period_sec: 5.0
 
     frame_id: base_link
+
+    # Flight recorder: every byte to and from the board, raw and timestamped,
+    # from the moment the port opens. One file per run, zeus_<date>_<time>.flt,
+    # about 1.5 GB an hour. Turn it into a Rerun recording on the laptop with
+    #     ros2 run zeus_rerun flight_to_rrd ~/zeus_logs/zeus_....flt
+    # (see zeus_rerun/README.md). A full disk stops the recording, never the robot.
+    record: true
+    record_dir: ~/zeus_logs

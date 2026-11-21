@@ -12,6 +12,7 @@ venv/
 
 # Rerun recordings - large, and belong with the run, not the code
 *.rrd
+*.flt
 
 # IDE specific
 .vscode/

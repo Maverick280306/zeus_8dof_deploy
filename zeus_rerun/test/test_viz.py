@@ -58,3 +58,28 @@ def test_connect_needs_a_host():
 def test_unknown_mode():
     with pytest.raises(ValueError, match="unknown mode"):
         viz.open_sink("bogus")
+
+
+def test_a_flight_log_converts_with_every_packet_and_command(tmp_path):
+    # Every packet logged, the lost one counted, the junk counted, the
+    # command decoded. A converter that quietly dropped any of these would
+    # make a recording look healthier than the run was.
+    from zeus_link import flight_log
+    from zeus_link.synthetic import pack_state, state_values
+    from zeus_rerun import flight_to_rrd
+
+    flt = tmp_path / "run.flt"
+    rec = flight_log.FlightRecorder(str(flt), proto_version=P.PROTO_VERSION)
+    rec.write(flight_log.RX, b"boot\r\n")                         # 6 junk bytes
+    for seq in (100, 101, 102, 104):                               # 103 lost
+        rec.write(flight_log.RX, pack_state(state_values(seq=seq)))
+    rec.write(flight_log.TX, P.NexusCommand(seq=0, residual=[0.01] * P.NUM_JOINTS,
+                                            flags=P.CMD_ENABLE).pack())
+    rec.write(flight_log.TX, P.NexusGains(seq=1).pack())
+    rec.close()
+
+    s = flight_to_rrd.convert(str(flt), out=str(tmp_path / "run.rrd"))
+    assert s["packets"] == 4 and s["logged"] == 4
+    assert s["lost"] == 1 and s["junk_bytes"] == 6
+    assert s["commands"] == 1 and s["gains"] == 1 and s["restarts"] == 0
+    assert (tmp_path / "run.rrd").stat().st_size > 1000

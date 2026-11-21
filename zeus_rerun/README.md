@@ -50,7 +50,51 @@ system numpy, venv or not.
 **Use the same rerun-sdk version everywhere** (`pip show rerun-sdk`). The SDK
 and viewer refuse to talk across versions. Tested with 0.37.2.
 
-## Three ways to use it
+## Every packet, from t+0: the flight recorder
+
+`link_node` records **every byte to and from the board** while it runs, on by
+default. That's the raw stream from the moment the port opens, before any
+parsing, plus every command and gains message the Pi sends, each stamped with
+the Pi's arrival time. One file per run:
+
+```
+~/zeus_logs/zeus_20261121_142530.flt      ~1.5 GB per hour
+```
+
+Nothing is decimated and nothing depends on Rerun or the network during the
+run. A full disk stops the recording and logs an error; it never touches the
+robot. `record: false` in `zeus_bringup/config/link.yaml` turns it off.
+
+Afterwards, **on the laptop**:
+
+```bash
+scp <user>@<pi>:zeus_logs/zeus_20261121_142530.flt .
+source ~/rerun_venv/bin/activate
+ros2 run zeus_rerun flight_to_rrd zeus_20261121_142530.flt     # writes the .rrd next to it
+rerun zeus_20261121_142530.rrd
+# no ROS on the laptop:
+PYTHONPATH=zeus_rerun:zeus_link python3 -m zeus_rerun.flight_to_rrd run.flt
+```
+
+Every packet at 1 kHz, about 6 minutes of conversion per hour of running. It
+has the same panels as the live view, plus:
+
+| | |
+|---|---|
+| `link/arrival_jitter_ms` | how late each packet reached the Pi, compared with the best case. Spikes are the Pi or USB holding data back |
+| `link/seq_gap` | packets that never arrived |
+| `policy/residual`, `policy/enable` | every command actually sent, not 1 in 10 |
+| `events` | board restarts, gains messages, anything unrecognised |
+
+It also prints totals: packets, lost, junk bytes (boot text, corruption, wrong
+protocol version), commands, and board restarts. The extra **`pi` timeline**
+keeps counting across a board reboot, which the `robot` timeline (the board's
+own clock) cannot.
+
+The `.flt` is the source of truth. Keep it even after converting: the
+estimator's offline replay reads the same file.
+
+## Three ways to watch it live
 
 ### 1. Live, Pi → laptop
 
@@ -141,4 +185,5 @@ a short recording of something fast like a foot strike.
 | `zeus_rerun/viz.py` | all the logging and the layout; works on a ROS message or a parsed packet |
 | `zeus_rerun/rerun_node.py` | ROS: subscribes `/zeus/state` and `/zeus/command` |
 | `zeus_rerun/rerun_serial.py` | no ROS: reads the port itself |
+| `zeus_rerun/flight_to_rrd.py` | a flight recording (`.flt`) to a full-rate `.rrd`, in columns |
 | `test/test_viz.py` | logs synthetic packets and commands to a real `.rrd` |

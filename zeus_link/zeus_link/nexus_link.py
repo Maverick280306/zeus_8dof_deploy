@@ -44,6 +44,7 @@ from typing import Callable, Deque, List, Optional, Sequence
 
 import serial
 
+from .flight_log import RX, TX, FlightRecorder
 from .ports import PortError
 
 # How much of the raw stream to keep for diagnosing a link that will not parse.
@@ -102,9 +103,14 @@ class NexusLink:
     def __init__(self,
                  port: str = "/dev/ttyACM0",
                  history: int = 0,
-                 on_packet: Optional[Callable[[NexusState], None]] = None) -> None:
+                 on_packet: Optional[Callable[[NexusState], None]] = None,
+                 recorder: Optional[FlightRecorder] = None) -> None:
         self._port_name = port
         self._on_packet = on_packet
+        # Every byte in and out, raw, before any parsing - see flight_log.py.
+        # Handed in rather than created here so the caller owns where it goes
+        # and when it closes; the link only ever appends to it.
+        self._recorder = recorder
 
         self._ser: Optional[serial.Serial] = None
         self._thread: Optional[threading.Thread] = None
@@ -187,6 +193,9 @@ class NexusLink:
         if self._ser is not None:
             self._ser.close()
             self._ser = None
+        # Flush, not close: the recorder belongs to whoever created it.
+        if self._recorder is not None:
+            self._recorder.flush()
 
     def __enter__(self) -> "NexusLink":
         self.start()
@@ -246,6 +255,11 @@ class NexusLink:
                     chunk += self._ser.read(extra)
             except (serial.SerialException, OSError):
                 break
+
+            # Recorded BEFORE parsing, so a run where parsing is what broke
+            # still has every byte to look at afterwards.
+            if self._recorder is not None:
+                self._recorder.write(RX, chunk)
 
             buf += chunk
             self.stats.bytes_in += len(chunk)
@@ -322,7 +336,10 @@ class NexusLink:
         with self._tx_lock:
             cmd = NexusCommand(seq=self._cmd_seq, residual=list(residual), flags=flags)
             self._cmd_seq = (self._cmd_seq + 1) & 0xFFFFFFFF
-            self._ser.write(cmd.pack())
+            raw = cmd.pack()
+            self._ser.write(raw)
+            if self._recorder is not None:
+                self._recorder.write(TX, raw)
 
     def send_gains(self, pos_gain: Sequence[float], vel_gain: Sequence[float],
                    vel_int_gain: Sequence[float]) -> int:
@@ -344,9 +361,12 @@ class NexusLink:
             self._gains_seq = (self._gains_seq + 1) & 0xFFFFFFFF
             if (self._gains_seq & 0xFF) == 0:
                 self._gains_seq += 1
-            self._ser.write(NexusGains(seq=seq, pos_gain=list(pos_gain),
-                                       vel_gain=list(vel_gain),
-                                       vel_int_gain=list(vel_int_gain)).pack())
+            raw = NexusGains(seq=seq, pos_gain=list(pos_gain),
+                             vel_gain=list(vel_gain),
+                             vel_int_gain=list(vel_int_gain)).pack()
+            self._ser.write(raw)
+            if self._recorder is not None:
+                self._recorder.write(TX, raw)
         return seq
 
     def raw_snapshot(self) -> bytes:

@@ -21,6 +21,7 @@ setup(
         'console_scripts': [
             'rerun_node = zeus_rerun.rerun_node:main',
             'rerun_serial = zeus_rerun.rerun_serial:main',
+            'flight_to_rrd = zeus_rerun.flight_to_rrd:main',
         ],
     },
 )
