@@ -18,14 +18,10 @@
 # A NEGATIVE value means "leave that drive's own saved value alone", which is
 # how a joint is taken out of the loop while its neighbour is being tuned.
 #
-# These start as the firmware's defaults: the bench leg's tuned hip and knee
-# numbers, a much smaller ankle velocity gain, and hip roll guessed.
-# NONE OF THEM HAVE BEEN TUNED ON THE ROBOT, and they are NOT the stiffness the
-# policy trained on.
-#
-# The ankle numbers were measured on a 9:1 ankle. THE ANKLE IS 15:1 - confirmed
-# on the assembled robot and independently in the policy's own zeus_model.py
-# (N_SEA, N_ROLL, N_ANK = 47, 26, 15) - so they are worse than untuned.
+# These are the gains the policy TRAINED on (below), converted per drive. They
+# replaced the bench leg's numbers (30 / 10 / 50 on hips and knees, 17 / 0.3 /
+# 1.5 measured on a 9:1 ankle), which were 6-15x stiffer than anything the
+# policy saw. Still untuned on the robot itself: tune FROM here, on recordings.
 #
 # What the policy DID train on, converted to the ODrive's own units. The drive's
 # position and velocity are turns of whatever shaft ITS encoder sits on, while
@@ -43,18 +39,22 @@
 # vel_int is 0 in training - there was no integrator at all, so the 50.0 below
 # is not a smaller version of it, it is a term that did not exist.
 #
-# NOT typed in yet because which shaft each encoder sits on has never been
-# measured: stm32_zeuss/docs/ODRIVE_COMMANDS.md says the ankle is motor-side
-# while robot_config.h says every drive reports output-shaft position with the
-# ratio applied, and hip roll has never been checked at all. The drives are the
-# authority, and a vel_gain wrong by N^2 is a factor of 225.
+# TYPED IN 2026-11-22, once the encoders were settled: every drive reads the
+# load side EXCEPT the left ankle, which uses its commutation encoder through
+# the 15:1 box - so it alone takes N^2 = 225 (vel 0.033510), and the right
+# ankle takes N = 15 (vel 0.50265). Same values as g_drive_gains in
+# stm32_zeuss/Appli/App/robot_config.c, which is what the board arms with.
+#
+# Known risk: no integrator means friction leaves a steady error of
+# friction / KP (~2 deg per Nm on an ankle). If the rolls or ankles stick in
+# the first air run, give THOSE a small vel_int rather than stiffening all.
 
 joints:
-  left_hip_pitch:    {pos: 30.0, vel: 10.0, vel_int: 50.0}
-  left_hip_roll:     {pos: 30.0, vel: 10.0, vel_int: 50.0}
-  left_knee_pitch:   {pos: 30.0, vel: 10.0, vel_int: 50.0}
-  left_ankle_pitch:  {pos: 17.0, vel: 0.3,  vel_int: 1.5}
-  right_hip_pitch:   {pos: 30.0, vel: 10.0, vel_int: 50.0}
-  right_hip_roll:    {pos: 30.0, vel: 10.0, vel_int: 50.0}
-  right_knee_pitch:  {pos: 30.0, vel: 10.0, vel_int: 50.0}
-  right_ankle_pitch: {pos: 17.0, vel: 0.3,  vel_int: 1.5}
+  left_hip_pitch:    {pos: 12.5, vel: 1.60420,  vel_int: 0.0}
+  left_hip_roll:     {pos: 15.0, vel: 0.96664,  vel_int: 0.0}
+  left_knee_pitch:   {pos: 12.5, vel: 1.60420,  vel_int: 0.0}
+  left_ankle_pitch:  {pos: 25.0, vel: 0.033510, vel_int: 0.0}
+  right_hip_pitch:   {pos: 12.5, vel: 1.60420,  vel_int: 0.0}
+  right_hip_roll:    {pos: 15.0, vel: 0.96664,  vel_int: 0.0}
+  right_knee_pitch:  {pos: 12.5, vel: 1.60420,  vel_int: 0.0}
+  right_ankle_pitch: {pos: 25.0, vel: 0.50265,  vel_int: 0.0}
