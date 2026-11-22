@@ -233,9 +233,17 @@ class GaitPassthroughNode(Node):
             name = SAFETY_NAMES.get(msg.safety_state, str(msg.safety_state))
             self.get_logger().info(f"board safety state: {name}")
             if name == "FAULT" and self._enable:
+                # A faulted board ignores enable:true until it has seen
+                # enable:false. Carrying on sending true left the GUI showing
+                # "arming" forever and looking like START did nothing. Drop
+                # back to watching, say why, and let the next START re-arm.
+                faults = [n for bit, n in HEALTH_NAMES.items() if self._health & bit]
+                self._enable = False
+                self._stop_reason = ("board fault"
+                                     + (f" ({', '.join(faults)})" if faults else ""))
                 self.get_logger().warn(
-                    "the board faulted and has idled the drives. Restart this "
-                    "node to re-arm - it redoes the enable-false handshake.")
+                    f"the board faulted and has idled the drives: {self._stop_reason}. "
+                    "Press START again to re-arm.")
 
     def stand_down(self) -> None:
         self._handshake_done = True
@@ -264,7 +272,13 @@ def main(args=None) -> None:
         # STM32's link fault takes the drives - or sooner, if the link node is
         # shut down too, since it sends enable false on its way out.
         if rclpy.ok():
-            node.stand_down()
+            try:
+                node.stand_down()
+            except Exception:   # noqa: BLE001
+                # The context can go invalid between ok() and publish() as
+                # ctrl-c lands. The link node's own enable:false on exit, or
+                # the board's 200 ms link fault, still idles the drives.
+                pass
         node.destroy_node()
         rclpy.try_shutdown()
 
