@@ -348,9 +348,13 @@ class GuiNode(Node):
                if not math.isfinite(float(s.joint_pos[j]))]
         chk(not nan, "every joint has a position",
             "no position (NaN): " + ", ".join(nan) + " - the board will not arm")
-        why = ankle_zero_problems(s.joint_pos, [1 if f >= 0.5 else 0 for f in fresh])
-        chk(not why, f"ankles at zero (within {ANKLE_ZERO_TOL_DEG:g} deg) - feet flat",
-            "; ".join(why))
+        # Only a pre-flight question: armed, the ankles are SUPPOSED to be at the
+        # start pose's -14..-19 deg, and a red cross there sent the operator
+        # hunting for a zero that was fine.
+        if s.safety_state != SAFETY_ARMED:
+            why = ankle_zero_problems(s.joint_pos, [1 if f >= 0.5 else 0 for f in fresh])
+            chk(not why, f"ankles at zero (within {ANKLE_ZERO_TOL_DEG:g} deg) - feet flat",
+                "; ".join(why))
         chk(abs(acc - GRAVITY) < 0.5, f"IMU reads {acc:.2f} m/s^2",
             f"IMU reads {acc:.2f} m/s^2 (expected ~9.81 standing still)", warn=True)
         low = [f"{SPRING_NAMES[i]} {100 * v:.0f}%" for i, v in enumerate(enc) if v < 0.95]
