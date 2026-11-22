@@ -4,13 +4,14 @@
 # joint map against Appli/App/link_proto.h. When the protocol version changes,
 # copy the new file over this one rather than editing it here.
 #
-# This is PROTOCOL v11: 8 joints, 4 nodes a bus, index = bus*4 + (node-1), state
+# This is PROTOCOL v12: 8 joints, 4 nodes a bus, index = bus*4 + (node-1), state
 # 426 bytes, command 44, gains 106, policy block 44 float32 - the v9 layout byte
 # for byte, which is what z1_softland_tol05 trained against ("exactly what
 # rl_policy_node gets from the board, 44 raw SI values, same order"). v11 adds
 # MEANINGS, not bytes: the soft-start HOLD and ZERO_ANKLES command flags and four
 # stream flags. HOLD is safety-critical - a v9 board would ignore it and arm
-# straight into the gait - hence the version bump.
+# straight into the gait - hence the version bump. v12 adds RETURN (back to
+# standing from the start pose), command bit 3 and stream bit 6, same bytes.
 #
 # It was briefly v10 (10 joints, ankle roll) for the Mukesh robot.
 # docs/ZEUS_DEPLOYMENT.md recorded that the v9 source no longer existed here and
@@ -61,9 +62,11 @@ from typing import List, Optional, Tuple
 
 SYNC = 0xA5A5
 SYNC_BYTES = struct.pack("<H", SYNC)
+# v12: CMD_RETURN / STREAM_RETURN, back to standing from the start pose.
+# Same bytes again.
 # v11: soft start - see NEXUS_PROTO_VERSION in link_proto.h. Same bytes as v9,
 # new meanings for flag bits, one of them safety-critical (HOLD).
-PROTO_VERSION = 11
+PROTO_VERSION = 12
 
 MSG_STATE = 0x01
 MSG_COMMAND = 0x02
@@ -201,6 +204,7 @@ STREAM_RAMP = 1 << 2        # soft start: blending from the arming pose to the g
 STREAM_HOLD = 1 << 3        # standing at the start pose, gait clock frozen
 STREAM_ANKLES_ZEROED = 1 << 4   # ZERO_ANKLES carried out since the board booted
 STREAM_ARM_BLOCKED = 1 << 5     # an enable was refused: a joint has no position
+STREAM_RETURN = 1 << 6          # going back to / holding the pose measured at arming
 
 ACT_TELEM_FRESH = 1 << 0
 ACT_HB_FRESH = 1 << 1
@@ -208,6 +212,7 @@ ACT_HB_FRESH = 1 << 1
 CMD_ENABLE = 1 << 0
 CMD_HOLD = 1 << 1           # arm into a hold at the start pose, not into the gait
 CMD_ZERO_ANKLES = 1 << 2    # Set_Absolute_Position(0) on both ankles; disarmed only
+CMD_RETURN = 1 << 3         # held arm only: ramp back to the arming pose and hold it
 
 # Health bitmask, mirrors Appli/App/health.h
 HEALTH_IMU = 1 << 0

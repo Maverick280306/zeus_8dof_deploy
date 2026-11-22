@@ -10,6 +10,7 @@ network, or a closed laptop that leaves the robot walking.
 """
 
 import json
+import re
 import os
 import signal
 import subprocess
@@ -114,6 +115,13 @@ def bring_up(name, commander, port):
     return procs, log
 
 
+# The test's own SIGINT landing inside a garbage-collector finalizer during
+# teardown: Python prints it and carries on ("Exception ignored in"). Not an
+# exception in any node's code; anything else still fails the check.
+_GC_SIGINT = re.compile(r"Exception ignored in: <function [^>]*__del__[^>]*>\n"
+                        r"Traceback \(most recent call last\):\n(?:  .*\n)*?\n?KeyboardInterrupt: ?\n")
+
+
 def tear_down(procs, log):
     for p in reversed(procs):
         p.send_signal(signal.SIGINT)
@@ -122,7 +130,7 @@ def tear_down(procs, log):
         except subprocess.TimeoutExpired:
             p.kill()
     log.seek(0)
-    return log.read()
+    return _GC_SIGINT.sub("", log.read())
 
 
 # ---------------------------------------------------------------- the policy
@@ -169,6 +177,45 @@ try:
     check(ok, f"commander back to watching ({mode(s)})")
     hb.on = False
 
+    print("BACK TO STANDING from the hold:", flush=True)
+    time.sleep(0.5)
+    hb = Heartbeat(PORT)
+    code, r = http(PORT, "POST", "/api/return")
+    check(not r["success"], f"refused while not armed: {r.get('message')}")
+    http(PORT, "POST", "/api/start")
+    ok, s = wait_for(PORT, lambda s: mode(s) == "ready", 8)
+    check(ok, f"at the start pose again ({mode(s)})")
+    code, r = http(PORT, "POST", "/api/return")
+    check(r["success"], f"BACK TO STANDING accepted: {r.get('message')}")
+    ok, s = wait_for(PORT, lambda s: (s.get("board") or {}).get("soft") == "RETURN"
+                     and mode(s) == "returning", 2)
+    check(ok, f"the board is going back ({mode(s)})")
+    code, r = http(PORT, "POST", "/api/walk")
+    check(not r["success"], "WALK refused on the way back")
+    ok, s = wait_for(PORT, lambda s: (s.get("board") or {}).get("soft") == "HOME"
+                     and mode(s) == "home", 5)
+    check(ok and mode(s) == "home" and safety(s) == "ARMED", f"home, still holding ({mode(s)})")
+    worst = max(abs(j["pos"]) for j in s["joints"])
+    check(worst < 0.5, f"every joint back at the standing pose (worst {worst:.2f} deg)")
+    http(PORT, "POST", "/api/stop")
+    ok, s = wait_for(PORT, lambda s: safety(s) != "ARMED", 2)
+    check(ok, "STOP idled it")
+    hb.on = False
+
+    print("BACK TO STANDING refused while walking:", flush=True)
+    time.sleep(0.5)
+    hb = Heartbeat(PORT)
+    http(PORT, "POST", "/api/start")
+    wait_for(PORT, lambda s: mode(s) == "ready", 8)
+    http(PORT, "POST", "/api/walk")
+    ok, s = wait_for(PORT, lambda s: mode(s) == "walking", 3)
+    code, r = http(PORT, "POST", "/api/return")
+    check(ok and not r["success"] and "STOP" in r.get("message", ""),
+          f"refused mid-stride: {r.get('message')}")
+    http(PORT, "POST", "/api/stop")
+    wait_for(PORT, lambda s: safety(s) != "ARMED", 2)
+    hb.on = False
+
     print("the dead-man: page goes quiet while armed:", flush=True)
     time.sleep(0.5)
     hb = Heartbeat(PORT)
@@ -199,6 +246,10 @@ try:
     check(ok, f"armed, ramped, holding the start pose ({mode(s)})")
     code, r = http(PORT2, "POST", "/api/walk")
     check(not r["success"], f"WALK refused: {r.get('message', '')[:60]}...")
+    code, r = http(PORT2, "POST", "/api/return")
+    check(r["success"], f"BACK TO STANDING accepted: {r.get('message')}")
+    ok, s = wait_for(PORT2, lambda s: mode(s) == "home", 6)
+    check(ok and safety(s) == "ARMED", f"back at the standing pose, holding ({mode(s)})")
     http(PORT2, "POST", "/api/stop")
     ok, s = wait_for(PORT2, lambda s: safety(s) != "ARMED", 2)
     check(ok, "STOP disarmed it")

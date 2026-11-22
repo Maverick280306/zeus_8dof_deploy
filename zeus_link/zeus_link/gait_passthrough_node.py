@@ -50,11 +50,13 @@ from std_srvs.srv import Trigger
 from zeus_msgs.msg import NexusCommand, NexusState
 
 from .nexus_proto import (HEALTH_NAMES, NUM_JOINTS, SAFETY_ARMED, SAFETY_IDLE,
-                          SAFETY_NAMES, STREAM_ARM_BLOCKED, STREAM_HOLD, STREAM_RAMP)
-from .precheck import ANKLE_ZERO_TOL_DEG, ankle_zero_problems
+                          SAFETY_NAMES, STREAM_ARM_BLOCKED, STREAM_HOLD, STREAM_RAMP,
+                          STREAM_RETURN)
+from .precheck import ANKLE_ZERO_TOL_DEG, ankle_zero_problems, return_refusal
 from .qos import COMMAND_QOS, STATE_QOS
 
 HANDSHAKE_SEC = 0.2
+
 
 
 class GaitPassthroughNode(Node):
@@ -95,6 +97,9 @@ class GaitPassthroughNode(Node):
         self.create_service(Trigger, "zeus/commander/start", self._on_start)
         self.create_service(Trigger, "zeus/commander/walk", self._on_walk)
         self.create_service(Trigger, "zeus/commander/stop", self._on_stop)
+        # Back to standing (protocol v12 RETURN): from the ramp or the hold,
+        # ramp back to the pose the robot armed from and stand there.
+        self.create_service(Trigger, "zeus/commander/return", self._on_return)
         self.create_timer(0.1, self._publish_status)
         self._flags = 0
 
@@ -162,6 +167,7 @@ class GaitPassthroughNode(Node):
                                throttle_duration_sec=2.0)
 
     def _on_start(self, _req, resp):
+        self._cmd.return_home = False
         self._enable = True
         self._stop_reason = None
         self.get_logger().warn("START: arming into the "
@@ -177,7 +183,15 @@ class GaitPassthroughNode(Node):
                         "within a second in simulation. Use policy:=rl to walk.")
         return resp
 
+    def _on_return(self, _req, resp):
+        resp.success, resp.message = return_refusal(self._enable, self._safety, self._flags)
+        if resp.success:
+            self._cmd.return_home = True
+            self.get_logger().warn("BACK TO STANDING: ramping back to the arming pose")
+        return resp
+
     def _on_stop(self, _req, resp):
+        self._cmd.return_home = False
         self._enable = False
         self._stop_reason = "operator STOP"
         self.stand_down()
@@ -197,6 +211,8 @@ class GaitPassthroughNode(Node):
                         ankle_zero_problems(self._pos, self._act_flags, self._ankle_tol))
         elif self._flags & STREAM_ARM_BLOCKED:
             mode, blockers = "arm_refused", ["the board refuses to arm: a joint has no position"]
+        elif self._flags & STREAM_RETURN:
+            mode, blockers = ("returning" if self._flags & STREAM_RAMP else "home"), []
         elif self._flags & STREAM_RAMP:
             mode, blockers = "ramping", []
         elif self._flags & STREAM_HOLD:
@@ -220,7 +236,11 @@ class GaitPassthroughNode(Node):
         self._act_flags = list(msg.act_flags)
         self._flags = msg.stream_flags
 
-        soft = ("ramping to the start pose" if msg.stream_flags & STREAM_RAMP else
+        soft = ("going back to the standing pose"
+                if msg.stream_flags & STREAM_RETURN and msg.stream_flags & STREAM_RAMP else
+                "back at the standing pose - STOP to idle the drives"
+                if msg.stream_flags & STREAM_RETURN else
+                "ramping to the start pose" if msg.stream_flags & STREAM_RAMP else
                 "holding the start pose" if msg.stream_flags & STREAM_HOLD else
                 "arm refused: a joint has no position (an ankle not zeroed?)"
                 if msg.stream_flags & STREAM_ARM_BLOCKED else None)
@@ -232,13 +252,17 @@ class GaitPassthroughNode(Node):
             self._safety = msg.safety_state
             name = SAFETY_NAMES.get(msg.safety_state, str(msg.safety_state))
             self.get_logger().info(f"board safety state: {name}")
-            if name == "FAULT" and self._enable:
+            if name == "FAULT" and self._enable and self._handshake_done:
+                # Only a fault AFTER our handshake: a node just started sees the
+                # board's leftover fault from whatever ran before it, and its
+                # own enable-false handshake is what clears that one.
                 # A faulted board ignores enable:true until it has seen
                 # enable:false. Carrying on sending true left the GUI showing
                 # "arming" forever and looking like START did nothing. Drop
                 # back to watching, say why, and let the next START re-arm.
                 faults = [n for bit, n in HEALTH_NAMES.items() if self._health & bit]
                 self._enable = False
+                self._cmd.return_home = False
                 self._stop_reason = ("board fault"
                                      + (f" ({', '.join(faults)})" if faults else ""))
                 self.get_logger().warn(

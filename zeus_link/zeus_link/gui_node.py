@@ -12,7 +12,8 @@ What it does, and what it deliberately does not:
     every joint's actual / commanded / reference angle, the estimator, the
     springs, the feet, health, and what the commander (rl_policy_node or the
     gait passthrough) says is blocking it.
-  * It has four buttons - ZERO ANKLES, START, WALK, STOP - and each one only
+  * It has five buttons - ZERO ANKLES, START, WALK, BACK TO STANDING, STOP -
+    and each one only
     CALLS A SERVICE. It never publishes a command itself, so there is still
     exactly one thing commanding the robot: the commander node. Two command
     publishers would interleave enable true and false and fight each other.
@@ -20,7 +21,10 @@ What it does, and what it deliberately does not:
     command with enable false from then on, whatever the commander does - and
     then the commander's own stop. START undoes the stand-down and asks the
     commander to arm into the HOLD. WALK is accepted by the commander only when
-    it reports "ready".
+    it reports "ready". BACK TO STANDING (protocol v12 RETURN) is for the ramp
+    or the hold: the board ramps back over 3 s to how the robot stood when it
+    armed, and holds it there, so the STOP that follows does not drop the legs
+    from the start pose's 35 degree knee bend.
   * DEAD-MAN. While the robot is armed from this page, the page must keep
     saying so: it sends a heartbeat every 200 ms. Nothing for HEARTBEAT_LOSS_S
     and this node stops the robot exactly as the STOP button does - a closed
@@ -64,7 +68,7 @@ from zeus_msgs.msg import NexusState
 
 from .nexus_proto import (FUSION_OK, HEALTH_NAMES, JOINT_NAMES, SAFETY_ARMED, SAFETY_NAMES,
                           SPRING_NAMES, STREAM_ANKLES_ZEROED, STREAM_ARM_BLOCKED, STREAM_HOLD,
-                          STREAM_RAMP)
+                          STREAM_RAMP, STREAM_RETURN)
 from .gui_key import gui_url, stable_key
 from .odrive_names import axis_state_name, error_names
 from .precheck import ANKLE_ZERO_TOL_DEG, ankle_zero_problems
@@ -126,7 +130,8 @@ class GuiNode(Node):
         self.cli = {name: self.create_client(Trigger, srv, callback_group=cb) for name, srv in (
             ("cmd_start", "zeus/commander/start"), ("cmd_walk", "zeus/commander/walk"),
             ("cmd_stop", "zeus/commander/stop"), ("stand_down", "zeus/stand_down"),
-            ("resume", "zeus/resume"), ("zero_ankles", "zeus/zero_ankles"))}
+            ("resume", "zeus/resume"), ("zero_ankles", "zeus/zero_ankles"),
+            ("cmd_return", "zeus/commander/return"))}
         self.create_timer(0.05, self._watchdog, callback_group=cb)
 
         self.url = gui_url(self.port, self.key)
@@ -159,6 +164,8 @@ class GuiNode(Node):
                     self.run["soft_seen"].add("ramp")
                 if msg.stream_flags & STREAM_HOLD:
                     self.run["soft_seen"].add("hold")
+                if msg.stream_flags & STREAM_RETURN:
+                    self.run["soft_seen"].add("back to standing")
             if not armed and self.was_armed and self.run is not None:
                 why = (self.commander or {}).get("stop_reason") or SAFETY_NAMES.get(
                     msg.safety_state, "?").lower()
@@ -253,6 +260,11 @@ class GuiNode(Node):
         self.event("WALK" if ok else f"WALK refused: {msg}")
         return ok, msg
 
+    def do_return(self) -> tuple:
+        ok, msg = self.call("cmd_return")
+        self.event("BACK TO STANDING" if ok else f"BACK TO STANDING refused: {msg}")
+        return ok, msg
+
     def do_zero(self) -> tuple:
         ok, msg = self.call("zero_ankles")
         self.event("ankles zeroed" if ok else f"zero ankles failed: {msg}")
@@ -288,7 +300,10 @@ class GuiNode(Node):
         health = [name for b, name in HEALTH_NAMES.items() if s.health & b]
 
         out["link"] = dict(connected=True, rate_hz=round(rate, 1), age_ms=round(1000 * st_age))
-        soft = "RAMP" if s.stream_flags & STREAM_RAMP else "HOLD" if s.stream_flags & STREAM_HOLD else ""
+        sf = s.stream_flags
+        soft = ("RETURN" if sf & STREAM_RETURN and sf & STREAM_RAMP else
+                "HOME" if sf & STREAM_RETURN else
+                "RAMP" if sf & STREAM_RAMP else "HOLD" if sf & STREAM_HOLD else "")
         out["board"] = dict(
             safety=SAFETY_NAMES.get(s.safety_state, "?"), soft=soft,
             ankles_zeroed=bool(s.stream_flags & STREAM_ANKLES_ZEROED),
@@ -416,7 +431,8 @@ def make_handler(node: GuiNode):
                 self._json(200, dict(ok=True))
                 return
             act = {"/api/start": node.do_start, "/api/walk": node.do_walk,
-                   "/api/stop": node.do_stop, "/api/zero_ankles": node.do_zero}.get(path)
+                   "/api/stop": node.do_stop, "/api/zero_ankles": node.do_zero,
+                   "/api/return": node.do_return}.get(path)
             if act is None:
                 self._json(404, dict(error="not found"))
                 return
@@ -482,6 +498,7 @@ h1{font-size:16px;margin:0;letter-spacing:.04em}
 .ARMED{background:var(--fail);color:#fff}.IDLE{background:var(--ok);color:#06150e}
 .FAULT{background:var(--warn);color:#1b1300}.BOOT{background:var(--line)}
 .RAMP{background:var(--acc);color:#04121b}.HOLD{background:var(--hold);color:#120a24}
+.RETURN{background:var(--acc);color:#04121b}.HOME{background:var(--ok);color:#06150e}
 main{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;padding:12px 16px}
 @media (max-width:900px){main{grid-template-columns:minmax(0,1fr)}}
 section{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px;min-width:0}
@@ -491,6 +508,7 @@ button{font:600 15px system-ui,sans-serif;padding:12px 18px;border-radius:8px;bo
 button:disabled{opacity:.35;cursor:not-allowed}button:focus-visible{outline:3px solid var(--acc)}
 #start{background:var(--acc);color:#04121b}#walk{background:var(--ok);color:#06150e}
 #zero{background:var(--line);color:var(--ink)}
+#back{background:var(--hold);color:#120a24}
 #stop{background:var(--fail);color:#fff;font-size:20px;padding:16px 36px;margin-left:auto}
 .mode{font-size:22px;font-weight:700;margin:8px 0 2px}.dim{color:var(--dim)}
 ul.checks{list-style:none;margin:0;padding:0}ul.checks li{padding:3px 0}
@@ -517,6 +535,7 @@ th:first-child,td:first-child{text-align:left}th{color:var(--dim);font-weight:50
     <button id="zero">ZERO ANKLES</button>
     <button id="start">START</button>
     <button id="walk">WALK</button>
+    <button id="back" title="from the start pose: ramp back to how it stood, then STOP">BACK TO STANDING</button>
     <button id="stop" title="space bar">STOP</button>
   </div>
   <div class="mode" id="mode">—</div>
@@ -554,6 +573,7 @@ $("walk").onclick = () => act("/api/walk", S && S.commander && S.commander.dry_r
   "DRY RUN: this releases the STORED GAIT with no policy - it falls within a second in " +
   "simulation. Release anyway?" : null);
 $("stop").onclick = () => act("/api/stop");
+$("back").onclick = () => act("/api/return");
 document.addEventListener("keydown", e => { if (e.code === "Space"){ e.preventDefault(); act("/api/stop"); }});
 
 setInterval(() => { fetch("/api/heartbeat", {method:"POST", headers:H}).catch(()=>{}); }, 200);
@@ -561,7 +581,8 @@ setInterval(() => { fetch("/api/heartbeat", {method:"POST", headers:H}).catch(()
 const MODES = {handshake:"Connecting to the board", watching:"Ready to START",
   ankle_check:"Ankle pre-check failing", blocked:"Cannot arm yet", arming:"Arming the drives",
   arm_refused:"Board refuses to arm", ramping:"Ramping to the start pose",
-  holding:"Holding the start pose", ready:"Holding — READY TO WALK", walking:"WALKING",
+  holding:"Holding the start pose",
+  returning:"Going back to the standing pose", home:"Back at the standing pose — press STOP to idle the drives", ready:"Holding — READY TO WALK", walking:"WALKING",
   running:"Running", stopped:"Stopped", fallen:"FALLEN — press STOP to acknowledge",
   no_state:"No state from the board"};
 
@@ -593,6 +614,7 @@ function render(){
   $("zero").disabled = !L.connected || armed;
   $("start").disabled = !L.connected || !C || C.enabled || mode === "fallen";
   $("walk").disabled = !C || !C.can_walk || mode !== "ready";
+  $("back").disabled = !C || !["ramping","holding","ready"].includes(mode);
 
   $("checks").innerHTML = (S.checks||[]).map(c => `<li class="${c.level}">${esc(c.text)}</li>`).join("");
 

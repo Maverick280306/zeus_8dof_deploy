@@ -6,24 +6,25 @@ import struct
 from zeus_link import nexus_proto as P
 
 
-def test_sizes_and_version_match_firmware_v11():
+def test_sizes_and_version_match_firmware_v12():
     # link_proto.h: nexus_state_t 426, nexus_cmd_t 44, nexus_gains_t 106,
     # NEXUS_PROTO_VERSION 11. The bytes are v9's (the state packet lost 8 bytes
     # at v9 when each foot dropped to one switch); v11 changed only what flag
     # bits mean, and the version moved because one of them, HOLD, is a safety
-    # meaning a v9 board would ignore.
+    # meaning a v9 board would ignore. v12 likewise: RETURN, which a v11 board
+    # would ignore and leave the robot bent at the start pose.
     assert P.STATE_SIZE == 426
     assert P.COMMAND_SIZE == 44
     assert P.GAINS_SIZE == 106
-    assert P.PROTO_VERSION == 11
+    assert P.PROTO_VERSION == 12
 
 
 def test_soft_start_flags_are_distinct_bits_in_their_fields():
     # A HOLD that shares a bit with ENABLE, or a stream flag on top of
     # GAIT_LIVE, would read as the wrong thing on the other side.
-    cmd = [P.CMD_ENABLE, P.CMD_HOLD, P.CMD_ZERO_ANKLES]
+    cmd = [P.CMD_ENABLE, P.CMD_HOLD, P.CMD_ZERO_ANKLES, P.CMD_RETURN]
     stream = [P.STREAM_GAIT_LIVE, P.STREAM_LEG_TEST, P.STREAM_RAMP, P.STREAM_HOLD,
-              P.STREAM_ANKLES_ZEROED, P.STREAM_ARM_BLOCKED]
+              P.STREAM_ANKLES_ZEROED, P.STREAM_ARM_BLOCKED, P.STREAM_RETURN]
     for group, width in ((cmd, 16), (stream, 8)):
         assert all(b and (b & (b - 1)) == 0 and b < (1 << width) for b in group)
         assert len(set(group)) == len(group)
@@ -35,7 +36,7 @@ def test_hold_reaches_the_wire():
     raw = P.NexusCommand(seq=7, residual=[0.0] * P.NUM_JOINTS,
                          flags=P.CMD_ENABLE | P.CMD_HOLD).pack()
     f = struct.unpack(P.COMMAND_FORMAT, raw)
-    assert f[2] == 11 and f[-2] == (P.CMD_ENABLE | P.CMD_HOLD)
+    assert f[2] == 12 and f[-2] == (P.CMD_ENABLE | P.CMD_HOLD)
 
 
 def test_crc_is_ccitt_false():

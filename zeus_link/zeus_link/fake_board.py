@@ -95,7 +95,7 @@ class FakeBoard:
         self._reject_run = 0
         self._stop = threading.Event()
         # Soft start (v11), the board's soft_start.c in miniature.
-        self.soft = "idle"              # idle | ramp | hold | run
+        self.soft = "idle"              # idle | ramp | hold | run | return | home
         self.soft_hold = False          # HOLD as it stands
         self.soft_ramp_held = False     # the ramp heads for the frozen pose
         self.soft_t0 = 0.0
@@ -158,6 +158,10 @@ class FakeBoard:
         self.soft_hold = hold
         if self.soft == "hold" and not hold:
             self.soft = "run"
+        held = self.soft == "hold" or (self.soft == "ramp" and self.soft_ramp_held)
+        if flags & P.CMD_RETURN and held and self.safety == P.SAFETY_ARMED:
+            self.soft, self.soft_t0 = "return", time.monotonic()
+            self.return_from = list(getattr(self, "_last_pos", self.ramp_from))
         self._set(P.SAFETY_ARMED, "enable true" + (", HOLD" if hold else ""))
 
     def _on_gains(self, frame: bytes) -> None:
@@ -230,10 +234,14 @@ class FakeBoard:
                     self.soft = "idle"
                 elif self.soft == "ramp" and now - self.soft_t0 >= SOFT_RAMP_S:
                     self.soft = "hold" if (self.soft_ramp_held and self.soft_hold) else "run"
+                elif self.soft == "return" and now - self.soft_t0 >= SOFT_RAMP_S:
+                    self.soft = "home"
                 soft = self.soft
-                frozen = (soft == "ramp" and self.soft_ramp_held) or soft == "hold"
+                frozen = ((soft == "ramp" and self.soft_ramp_held)
+                          or soft in ("hold", "return", "home"))
                 stream = (P.STREAM_GAIT_LIVE
-                          | (P.STREAM_RAMP if soft == "ramp" else 0)
+                          | (P.STREAM_RAMP if soft in ("ramp", "return") else 0)
+                          | (P.STREAM_RETURN if soft in ("return", "home") else 0)
                           | (P.STREAM_HOLD if soft == "hold" else 0)
                           | (P.STREAM_ANKLES_ZEROED if self.ankles_zeroed else 0))
             if frozen:
@@ -266,8 +274,15 @@ class FakeBoard:
                     xr = min(1.0, (now - self.soft_t0) / SOFT_RAMP_S)
                     sm = xr * xr * (3.0 - 2.0 * xr)
                     pos = [a + sm * (b - a) for a, b in zip(self.ramp_from, ref)]
+                elif soft == "return":
+                    xr = min(1.0, (now - self.soft_t0) / SOFT_RAMP_S)
+                    sm = xr * xr * (3.0 - 2.0 * xr)
+                    pos = [a + sm * (b - a) for a, b in zip(self.return_from, self.ramp_from)]
+                elif soft == "home":
+                    pos = list(self.ramp_from)
                 else:
                     pos = list(ref)
+                self._last_pos = list(pos)
                 # A healthy, converged estimator over a robot on its feet -
                 # what the policy's arm guards need to see.
                 extra = dict(fused_valid=P.FUSION_OK, fk_valid=3,

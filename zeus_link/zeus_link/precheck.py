@@ -25,7 +25,8 @@ from __future__ import annotations
 import math
 from typing import List, Optional, Sequence
 
-from .nexus_proto import ACT_TELEM_FRESH, JOINT_INDEX
+from .nexus_proto import (ACT_TELEM_FRESH, JOINT_INDEX, SAFETY_ARMED, STREAM_HOLD, STREAM_RAMP,
+                          STREAM_RETURN)
 
 ANKLE_ZERO_TOL_DEG = 2.0
 ANKLES = ("left_ankle_pitch", "right_ankle_pitch")
@@ -48,3 +49,17 @@ def ankle_zero_problems(joint_pos: Sequence[float],
             why.append(f"{name} reads {math.degrees(a):+.1f} deg, more than {tol_deg:g} deg "
                        "from zero - are the feet flat? if they are, re-zero it")
     return why
+
+
+def return_refusal(enabled: bool, safety, flags: int):
+    """(ok, message) for a BACK TO STANDING request. Only a held arm can go
+    back: during the ramp to the start pose or the hold there. Shared by both
+    commanders so they refuse the same things with the same words."""
+    if not enabled or safety != SAFETY_ARMED:
+        return False, "not armed - nothing to go back from"
+    if flags & STREAM_RETURN:
+        return True, "already going back to / at the standing pose"
+    if not flags & (STREAM_RAMP | STREAM_HOLD):
+        return False, ("the gait is running - BACK TO STANDING only works from the start "
+                       "pose. Press STOP.")
+    return True, "going back to the standing pose over 3 s, then STOP to idle the drives"

@@ -319,8 +319,10 @@ Step by step, the first time. Each step proves the one before it.
 **Every arm ramps** (protocol v11 soft start, `stm32_zeuss/Appli/App/soft_start.h`):
 the board moves each joint from where it stands to the gait over 3 s instead of
 jumping there. With `hold` it ramps to the start pose and stands; the stride starts
-only when the hold is released. The board and this workspace must both be v11 -
-a mismatched pair refuses to talk.
+only when the hold is released. From the ramp or the hold, BACK TO STANDING
+(protocol v12 RETURN, `zeus/commander/return`) ramps back over 3 s to how the
+robot stood when it armed and holds there; STOP then idles the drives. The board
+and this workspace must both be v12 - a mismatched pair refuses to talk.
 
 ```bash
 # 1. Is the link alive? No ROS; sends nothing to the board.

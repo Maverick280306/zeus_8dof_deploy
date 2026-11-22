@@ -58,10 +58,10 @@ import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from zeus_link.convert import RESIDUAL_LIMIT_RAD
-from zeus_link.precheck import ANKLE_ZERO_TOL_DEG, ankle_zero_problems
+from zeus_link.precheck import ANKLE_ZERO_TOL_DEG, ankle_zero_problems, return_refusal
 from zeus_link.nexus_proto import (HEALTH_NAMES, JOINT_NAMES, NUM_JOINTS, SAFETY_ARMED,
                                    SAFETY_IDLE, STREAM_ARM_BLOCKED, STREAM_HOLD,
-                                   STREAM_RAMP)
+                                   STREAM_RAMP, STREAM_RETURN)
 from .obs_adapter import tilt_of
 from zeus_link.qos import COMMAND_QOS, STATE_QOS
 from std_msgs.msg import String
@@ -129,6 +129,8 @@ class RLPolicyNode(Node):
         self.create_service(Trigger, 'zeus/commander/start', self.on_start)
         self.create_service(Trigger, 'zeus/commander/walk', self.on_walk)
         self.create_service(Trigger, 'zeus/commander/stop', self.on_stop)
+        self.create_service(Trigger, 'zeus/commander/return', self.on_return)
+        self.returning = False      # BACK TO STANDING asked for, until the next START/stop
         self.create_timer(1.0 / RATE_HZ, self.step)
         self.create_timer(0.1, self.publish_status)
 
@@ -157,6 +159,7 @@ class RLPolicyNode(Node):
         self.disengage()
         self.enable = False
         self.release = False
+        self.returning = False
         self.stop_reason = reason
 
     # ---- operator ------------------------------------------------------------
@@ -168,6 +171,7 @@ class RLPolicyNode(Node):
             return resp
         self.enable = True
         self.release = False
+        self.returning = False
         self.stop_reason = None
         self.get_logger().warn("START: arming into the HOLD")
         resp.success, resp.message = True, "arming into the hold - the robot ramps to the start pose"
@@ -183,6 +187,18 @@ class RLPolicyNode(Node):
         self.get_logger().warn("WALK: releasing the hold into the gait"
                                + (" - DRY RUN, the stored gait alone" if self.dry_run else ""))
         resp.success, resp.message = True, "released into the gait"
+        return resp
+
+    def on_return(self, _req, resp):
+        s = self.state
+        ok, msg = return_refusal(self.enable,
+                                 None if s is None else s.safety_state,
+                                 0 if s is None else s.stream_flags)
+        if ok:
+            self.returning = True
+            self.release = False
+            self.get_logger().warn("BACK TO STANDING: ramping back to the arming pose")
+        resp.success, resp.message = ok, msg
         return resp
 
     def on_stop(self, _req, resp):
@@ -308,6 +324,16 @@ class RLPolicyNode(Node):
 
         cmd.enable = True
         cmd.hold = True
+        cmd.return_home = self.returning
+        if s.stream_flags & STREAM_RETURN:
+            # The board's going back is final until disarm, whatever is sent
+            # now - a START pressed at home does not head out again.
+            self.mode = "returning" if s.stream_flags & STREAM_RAMP else "home"
+            self.blockers = [] if self.returning else ["at the standing pose: STOP, then START"]
+            self.get_logger().info("back at the standing pose - STOP to idle the drives"
+                                   if self.mode == "home" else "going back to the standing pose",
+                                   throttle_duration_sec=2.0)
+            return
         if s.stream_flags & STREAM_ARM_BLOCKED:
             self.mode, self.blockers = "arm_refused", [
                 "the board refuses to arm: a joint has no position (zero the ankles)"]

@@ -50,7 +50,7 @@ from .convert import (RESIDUAL_LIMIT_RAD, fill_state_msg, joint_state_arrays,
                       names_of, residual_rad_to_turns)
 from .flight_log import FlightRecorder, default_path
 from .nexus_link import NexusLink
-from .nexus_proto import (CMD_HOLD, CMD_ZERO_ANKLES, HEALTH_NAMES, JOINT_INDEX, JOINT_NAMES,
+from .nexus_proto import (CMD_HOLD, CMD_RETURN, CMD_ZERO_ANKLES, HEALTH_NAMES, JOINT_INDEX, JOINT_NAMES,
                           NUM_JOINTS, PROTO_VERSION, SAFETY_ARMED, SAFETY_NAMES,
                           STREAM_ANKLES_ZEROED, STREAM_LEG_TEST)
 from .odrive_names import axis_state_name, error_names
@@ -268,6 +268,8 @@ class LinkNode(Node):
             flags |= CMD_HOLD
         if getattr(msg, "zero_ankles", False):
             flags |= CMD_ZERO_ANKLES
+        if getattr(msg, "return_home", False):
+            flags |= CMD_RETURN
         self._send(turns, bool(msg.enable) and not self._stood_down, flags)
         self._commands += 1
 
