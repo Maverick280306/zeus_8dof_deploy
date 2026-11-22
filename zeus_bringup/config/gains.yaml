@@ -40,9 +40,9 @@
 # is not a smaller version of it, it is a term that did not exist.
 #
 # TYPED IN 2026-11-22, once the encoders were settled: every drive reads the
-# load side EXCEPT the left ankle, which uses its commutation encoder through
-# the 15:1 box - so it alone takes N^2 = 225 (vel 0.033510), and the right
-# ankle takes N = 15 (vel 0.50265). Same values as g_drive_gains in
+# load side EXCEPT the two ankles, which use their commutation encoders through
+# the 15:1 box - so both take N^2 = 225 (vel 0.033510). (The right ankle was on
+# a load-side encoder, N = 15 and vel 0.50265, until later that day.) Same values as g_drive_gains in
 # stm32_zeuss/Appli/App/robot_config.c, which is what the board arms with.
 #
 # Known risk: no integrator means friction leaves a steady error of
@@ -57,4 +57,4 @@ joints:
   right_hip_pitch:   {pos: 12.5, vel: 1.60420,  vel_int: 0.0}
   right_hip_roll:    {pos: 15.0, vel: 0.96664,  vel_int: 0.0}
   right_knee_pitch:  {pos: 12.5, vel: 1.60420,  vel_int: 0.0}
-  right_ankle_pitch: {pos: 25.0, vel: 0.50265,  vel_int: 0.0}
+  right_ankle_pitch: {pos: 25.0, vel: 0.033510, vel_int: 0.0}
