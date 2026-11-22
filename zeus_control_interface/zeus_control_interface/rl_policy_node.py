@@ -197,7 +197,7 @@ class RLPolicyNode(Node):
         if ok:
             self.returning = True
             self.release = False
-            self.get_logger().warn("BACK TO STANDING: ramping back to the arming pose")
+            self.get_logger().warn("BACK TO STANDING: ramping every joint to zero")
         resp.success, resp.message = ok, msg
         return resp
 

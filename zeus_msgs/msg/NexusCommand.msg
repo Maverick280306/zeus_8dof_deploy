@@ -37,8 +37,8 @@ bool hold
 bool zero_ankles
 
 # Back to standing (protocol v12). With enable, during the ramp to the start
-# pose or the hold there: ramp back over 3 s to the pose measured when the
-# robot armed, and hold it, so a following enable false idles the drives with
-# the legs where they started. Ignored once the gait runs. Final until disarm.
+# pose or the hold there: ramp over 3 s to zero on every joint (the standing
+# pose), and hold it, so a following enable false idles the drives from a
+# straight stand. Ignored once the gait runs. Final until disarm.
 # NexusState.stream_flags shows RETURN (with RAMP while on the way).
 bool return_home

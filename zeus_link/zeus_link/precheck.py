@@ -62,4 +62,4 @@ def return_refusal(enabled: bool, safety, flags: int):
     if not flags & (STREAM_RAMP | STREAM_HOLD):
         return False, ("the gait is running - BACK TO STANDING only works from the start "
                        "pose. Press STOP.")
-    return True, "going back to the standing pose over 3 s, then STOP to idle the drives"
+    return True, "every joint to zero over 3 s, then STOP to idle the drives"

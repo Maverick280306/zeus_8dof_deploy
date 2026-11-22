@@ -278,9 +278,9 @@ class FakeBoard:
                 elif soft == "return":
                     xr = min(1.0, (now - self.soft_t0) / SOFT_RAMP_S)
                     sm = xr * xr * (3.0 - 2.0 * xr)
-                    pos = [a + sm * (b - a) for a, b in zip(self.return_from, self.ramp_from)]
+                    pos = [a * (1.0 - sm) for a in self.return_from]     # to zero
                 elif soft == "home":
-                    pos = list(self.ramp_from)
+                    pos = [0.0] * P.NUM_JOINTS
                 else:
                     pos = list(ref)
                 self._last_pos = list(pos)

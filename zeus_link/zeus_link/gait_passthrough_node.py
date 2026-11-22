@@ -187,7 +187,7 @@ class GaitPassthroughNode(Node):
         resp.success, resp.message = return_refusal(self._enable, self._safety, self._flags)
         if resp.success:
             self._cmd.return_home = True
-            self.get_logger().warn("BACK TO STANDING: ramping back to the arming pose")
+            self.get_logger().warn("BACK TO STANDING: ramping every joint to zero")
         return resp
 
     def _on_stop(self, _req, resp):

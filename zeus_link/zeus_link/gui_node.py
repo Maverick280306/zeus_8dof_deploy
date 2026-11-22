@@ -22,8 +22,8 @@ What it does, and what it deliberately does not:
     then the commander's own stop. START undoes the stand-down and asks the
     commander to arm into the HOLD. WALK is accepted by the commander only when
     it reports "ready". BACK TO STANDING (protocol v12 RETURN) is for the ramp
-    or the hold: the board ramps back over 3 s to how the robot stood when it
-    armed, and holds it there, so the STOP that follows does not drop the legs
+    or the hold: the board ramps over 3 s to zero on every joint, the standing
+    pose, and holds it there, so the STOP that follows does not drop the legs
     from the start pose's 35 degree knee bend.
   * DEAD-MAN. While the robot is armed from this page, the page must keep
     saying so: it sends a heartbeat every 200 ms. Nothing for HEARTBEAT_LOSS_S
@@ -539,7 +539,7 @@ th:first-child,td:first-child{text-align:left}th{color:var(--dim);font-weight:50
     <button id="zero">ZERO ANKLES</button>
     <button id="start">START</button>
     <button id="walk">WALK</button>
-    <button id="back" title="from the start pose: ramp back to how it stood, then STOP">BACK TO STANDING</button>
+    <button id="back" title="from the start pose: ramp every joint to zero, then STOP">BACK TO STANDING</button>
     <button id="stop" title="space bar">STOP</button>
   </div>
   <div class="mode" id="mode">—</div>
