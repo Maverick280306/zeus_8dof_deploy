@@ -106,11 +106,12 @@ check("HOLDING the start pose" in log, "node reports it is holding the start pos
 check("released at phase" not in log, "and never released into the gait")
 check("Traceback" not in log, "no exception")
 
-print("right ankle zero lost (reads 6.5 deg with the feet flat):", flush=True)
-s, log = scenario("ankle", 8, "enable:=true", "release:=false",
+print("right ankle reads 6.5 deg at launch: the link node zeroes it, then it arms:", flush=True)
+s, log = scenario("ankle", 9, "enable:=true", "release:=false",
                   board_extra=("--ankle-offset", "6.5"))
-check(not [e for e in s["events"] if e[2] == "ARMED"], "the ankle pre-check kept it from arming")
-check("ankle pre-check" in log and "right_ankle_pitch reads +6.5" in log, "and named the ankle")
+check(s.get("ankle_zeroings", 0) >= 1, "the link node zeroed the ankles on start")
+check(any(e[2] == "ARMED" and "HOLD" in e[3] for e in s["events"]),
+      "and the robot then armed into the hold from the new zero")
 
 print("wrong stored gait:", flush=True)
 s, log = scenario("wrong", 8, "enable:=true", "dry_run:=false", gait=False)

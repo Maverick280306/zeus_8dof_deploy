@@ -14,7 +14,10 @@ Services:
     /zeus/resume       std_srvs/Trigger   release that latch
     /zeus/set_gains    zeus_msgs/SetGains write drive gains, between runs only
     /zeus/zero_ankles  std_srvs/Trigger   both ankle drives' position := 0, while
-                                          disarmed only - asserts the feet are flat
+                                          disarmed only - asserts the feet are flat.
+                                          Also done AUTOMATICALLY once at start
+                                          (zero_ankles_on_start, default true):
+                                          whatever the ankles read then is zero.
 
 Parameters (zeus_bringup/config/link.yaml):
     port                 "auto" or a device path
@@ -50,7 +53,7 @@ from .convert import (RESIDUAL_LIMIT_RAD, fill_state_msg, joint_state_arrays,
                       names_of, residual_rad_to_turns)
 from .flight_log import FlightRecorder, default_path
 from .nexus_link import NexusLink
-from .nexus_proto import (CMD_HOLD, CMD_RETURN, CMD_ZERO_ANKLES, HEALTH_NAMES, JOINT_INDEX, JOINT_NAMES,
+from .nexus_proto import (ACT_TELEM_FRESH, CMD_HOLD, CMD_RETURN, CMD_ZERO_ANKLES, HEALTH_NAMES, JOINT_INDEX, JOINT_NAMES,
                           NUM_JOINTS, PROTO_VERSION, SAFETY_ARMED, SAFETY_NAMES,
                           STREAM_ANKLES_ZEROED, STREAM_LEG_TEST)
 from .odrive_names import axis_state_name, error_names
@@ -98,6 +101,15 @@ class LinkNode(Node):
         self.create_service(Trigger, "zeus/resume", self._on_resume)
         self.create_service(SetGains, "zeus/set_gains", self._on_set_gains)
         self.create_service(Trigger, "zeus/zero_ankles", self._on_zero_ankles)
+        # Whatever the ankles read when this node starts IS their zero. The
+        # builder sets the feet flat before launching; the ankle drives keep no
+        # usable zero across a reboot (motor-side encoders through 15:1), so
+        # this is done every session, automatically, instead of by a button
+        # that could be forgotten. Retried until both drives report and it is
+        # confirmed; never while armed.
+        self._auto_zero = bool(self.declare_parameter("zero_ankles_on_start", True).value)
+        if self._auto_zero:
+            self._auto_zero_timer = self.create_timer(0.5, self._auto_zero_ankles)
 
         self._stood_down = False
         self._published = 0
@@ -330,6 +342,27 @@ class LinkNode(Node):
                         f"(zeroed flag {'set' if pkt is not None and pkt.stream_flags & STREAM_ANKLES_ZEROED else 'clear'}; {now})")
         self.get_logger().error("zero_ankles: " + resp.message)
         return resp
+
+    def _auto_zero_ankles(self) -> None:
+        pkt = self._link.latest()
+        ankles = (JOINT_INDEX["left_ankle_pitch"], JOINT_INDEX["right_ankle_pitch"])
+        if pkt is None:
+            return
+        if pkt.safety_state == SAFETY_ARMED:
+            self.get_logger().warn("ankle auto-zero skipped: the board is already armed")
+            self._auto_zero_timer.cancel()
+            return
+        silent = [JOINT_NAMES[i] for i in ankles if not pkt.act_flags[i] & ACT_TELEM_FRESH]
+        if silent:
+            self.get_logger().info("ankle auto-zero waiting for " + ", ".join(silent)
+                                   + " to report (drive powered?)", throttle_duration_sec=5.0)
+            return
+        before = ", ".join(f"{JOINT_NAMES[i]} {math.degrees(pkt.joint_pos[i]):+.2f}" for i in ankles)
+        resp = self._on_zero_ankles(None, Trigger.Response())
+        if resp.success:
+            self._auto_zero_timer.cancel()
+            self.get_logger().warn(f"ANKLES ZEROED ON START (they read {before} deg) - "
+                                   "the feet must have been flat")
 
     def _on_stand_down(self, _req, resp):
         self._stood_down = True

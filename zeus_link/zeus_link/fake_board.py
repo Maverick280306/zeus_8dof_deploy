@@ -125,6 +125,7 @@ class FakeBoard:
         zero = bool(flags & P.CMD_ZERO_ANKLES)
         if zero and not self.zero_prev and self.safety != P.SAFETY_ARMED:
             self.ankles_zeroed = True
+            self.ankle_offset = 0.0     # Set_Absolute_Position(0): it reads 0 now
             s.setdefault("ankle_zeroings", 0)
             s["ankle_zeroings"] += 1
         self.zero_prev = zero
