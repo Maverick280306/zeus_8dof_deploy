@@ -320,6 +320,14 @@ def cmd_zero_ankles(args) -> int:
     return 0 if resp.success else 1
 
 
+def cmd_gui(args) -> int:
+    """Print the GUI's address, key included."""
+    from zeus_link.gui_key import gui_url
+    print(gui_url(args.port))
+    print("open it in a browser on the laptop; the robot launch must be running")
+    return 0
+
+
 # ---------------------------------------------------------------- gains
 
 def cmd_gains(args) -> int:
@@ -514,6 +522,10 @@ def main(argv=None) -> int:
 
     s = sub.add_parser("stop", help="stand down: the drives go limp")
     s.set_defaults(func=cmd_stop)
+
+    u = sub.add_parser("gui", help="print the web GUI's address, key included")
+    u.add_argument("--port", type=int, default=8080)
+    u.set_defaults(func=cmd_gui)
 
     z = sub.add_parser("zero-ankles",
                        help="set both ankles' position to zero - feet flat, robot disarmed")

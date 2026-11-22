@@ -27,8 +27,13 @@ What it does, and what it deliberately does not:
     tab, a sleeping laptop, a dropped Wi-Fi link. The physical motor cut-off is
     still the first stop; this is the second.
   * A KEY. Anyone on the network could otherwise open the page and arm the
-    robot. Every launch makes a random key (or takes the `key` parameter); the
-    page must be opened with it, and every request without it is refused.
+    robot. The page must be opened with the key, and every request without it
+    is refused. The key is made ONCE and kept in KEY_FILE (readable only by
+    its owner), so the address stays the same across launches and can be
+    bookmarked - a new key per launch meant an old bookmark or an address
+    copied a minute earlier was refused after every restart. `zeus gui`
+    prints the address; delete the file to change the key; the `key`
+    parameter overrides it.
 
 Python standard library only - http.server and Server-Sent Events - so nothing
 has to be installed on the Pi.
@@ -60,6 +65,7 @@ from zeus_msgs.msg import NexusState
 from .nexus_proto import (FUSION_OK, HEALTH_NAMES, JOINT_NAMES, SAFETY_ARMED, SAFETY_NAMES,
                           SPRING_NAMES, STREAM_ANKLES_ZEROED, STREAM_ARM_BLOCKED, STREAM_HOLD,
                           STREAM_RAMP)
+from .gui_key import gui_url, stable_key
 from .odrive_names import axis_state_name, error_names
 from .precheck import ANKLE_ZERO_TOL_DEG, ankle_zero_problems
 from .qos import STATE_QOS
@@ -92,7 +98,7 @@ class GuiNode(Node):
     def __init__(self) -> None:
         super().__init__("zeus_gui")
         self.port = int(self.declare_parameter("port", 8080).value)
-        self.key = str(self.declare_parameter("key", "").value) or secrets.token_urlsafe(9)
+        self.key = str(self.declare_parameter("key", "").value) or stable_key()
 
         self.lock = threading.Lock()
         self.state: Optional[NexusState] = None
@@ -123,9 +129,9 @@ class GuiNode(Node):
             ("resume", "zeus/resume"), ("zero_ankles", "zeus/zero_ankles"))}
         self.create_timer(0.05, self._watchdog, callback_group=cb)
 
-        host = socket.gethostname()
-        self.url = f"http://{host}.local:{self.port}/?key={self.key}"
-        self.get_logger().warn(f"GUI: {self.url}")
+        self.url = gui_url(self.port, self.key)
+        self.get_logger().warn(f"GUI: {self.url}   (the same every launch; "
+                               "`ros2 run zeus_bringup zeus gui` prints it)")
         self.event("GUI started")
 
     # ---- inputs --------------------------------------------------------------
