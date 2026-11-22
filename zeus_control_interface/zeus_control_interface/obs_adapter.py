@@ -192,6 +192,10 @@ class Guards:
     # other one tested (sim_check/RESULTS.md). The stride is not symmetric to the
     # network even though the gait is: it was only ever evaluated from phase 0.
     START_WINDOW = (0.95, 0.30)
+    # The board sends its phase as float32: its start phase 0.95f arrives as
+    # 0.94999999, which a strict comparison put OUTSIDE the window - WALK was
+    # refused at exactly the phase the board holds.
+    PHASE_EPS = 1e-4
     # Arming sends ref + residual straight to the drives. A leg far from the
     # reference gets there as fast as the gains can take it.
     POSE_TOL_RAD = math.radians(5.0)
@@ -235,7 +239,7 @@ class Guards:
         why = []
         lo, hi = self.START_WINDOW
         phase = float(state.phase) % 1.0
-        if hi < phase < lo:
+        if hi + self.PHASE_EPS < phase < lo - self.PHASE_EPS:
             why.append(f"phase {float(state.phase):.2f} is outside the start window")
 
         off = np.abs(np.asarray(state.joint_pos, dtype=np.float64)

@@ -176,7 +176,10 @@ def test_the_old_human_gait_table_is_refused(policy):
 
 
 @pytest.mark.parametrize("phase,ok", [(0.0, True), (0.97, True), (0.29, True), (0.5, False),
-                                      (0.31, False), (0.94, False)])
+                                      (0.31, False), (0.94, False),
+                                      # the board's start phase 0.95f as it arrives,
+                                      # float32: 0.94999999 - must be inside
+                                      (float(np.float32(0.95)), True)])
 def test_engage_only_from_a_phase_it_can_start_from(policy, phase, ok):
     # Outside the window the policy fell within 1.5 s of starting from rest.
     g = Guards(policy)

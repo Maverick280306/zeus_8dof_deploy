@@ -49,6 +49,7 @@ RESIDUAL_LIMIT_TURNS = 0.1
 LINK_TIMEOUT_S = 0.2
 MAX_REJECTS = 10
 SOFT_RAMP_S = 3.0      # soft_start.h SOFT_START_RAMP_S
+SOFT_START_PHASE = 0.95  # soft_start.h: double support, both feet down
 
 
 class FakeBoard:
@@ -245,12 +246,12 @@ class FakeBoard:
                           | (P.STREAM_RETURN if soft in ("return", "home") else 0)
                           | (P.STREAM_HOLD if soft == "hold" else 0)
                           | (P.STREAM_ANKLES_ZEROED if self.ankles_zeroed else 0))
+            period = self.gait_period if self.gait_q is not None else 1.26
             if frozen:
-                clock_seq = 0.0
+                clock_seq = SOFT_START_PHASE * 1000.0 * period
             else:
                 clock_seq = getattr(self, "_clock", 0.0) + 1.0
             self._clock = clock_seq
-            period = self.gait_period if self.gait_q is not None else 1.26
             phase = (clock_seq / (1000.0 * period)) % 1.0
             w = 2.0 * math.pi * phase
             errors = [0] * P.NUM_JOINTS
