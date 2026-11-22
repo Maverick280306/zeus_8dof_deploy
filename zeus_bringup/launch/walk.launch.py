@@ -12,6 +12,8 @@ The robot plus something that commands it.
     enable   false keeps the board IDLE while commands still flow (safe default)
     dry_run  rl only. true runs the policy but sends zero residual (safe default).
              Zero residual is the stored gait: a released dry run WALKS.
+    gui      true (default) also runs the web GUI; the log prints its address,
+             with the key it must be opened with. gui_port sets the port.
     hold     passthrough only. true (default) arms into the soft-start hold and
              stands at the gait's start pose; false ramps into the running gait.
     release  rl only. true (default) releases the hold into the gait once the
@@ -55,6 +57,8 @@ def generate_launch_description():
         DeclareLaunchArgument('dry_run', default_value='true'),
         DeclareLaunchArgument('hold', default_value='true'),
         DeclareLaunchArgument('release', default_value='true'),
+        DeclareLaunchArgument('gui', default_value='true'),
+        DeclareLaunchArgument('gui_port', default_value='8080'),
 
         IncludeLaunchDescription(PythonLaunchDescriptionSource(PathJoinSubstitution(
             [FindPackageShare('zeus_bringup'), 'launch', 'robot.launch.py']))),
@@ -66,5 +70,10 @@ def generate_launch_description():
         Node(package='zeus_control_interface', executable='rl_policy_node',
              name='rl_policy', condition=is_policy('rl'),
              parameters=[{'enable': enable, 'dry_run': dry_run, 'release': release}],
+             output='screen', emulate_tty=True),
+
+        Node(package='zeus_link', executable='zeus_gui', name='zeus_gui',
+             condition=IfCondition(LaunchConfiguration('gui')),
+             parameters=[{'port': ParameterValue(LaunchConfiguration('gui_port'), value_type=int)}],
              output='screen', emulate_tty=True),
     ])

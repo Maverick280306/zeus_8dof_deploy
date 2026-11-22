@@ -83,6 +83,14 @@ class LinkNode(Node):
         self._port = find_port(requested)   # PortError propagates to main()
 
         self._state_pub = self.create_publisher(NexusState, "zeus/state", STATE_QOS)
+        # The same state at a display rate. Anything that only LOOKS - the GUI,
+        # a monitor - subscribes here: a Python node handling all 1000 a second
+        # starves its own threads (the GUI's web server answered in up to 2.2 s,
+        # and its dead-man fired on heartbeats that were sent but not handled).
+        viz_rate = float(self.declare_parameter("viz_rate_hz", 50.0).value)
+        self._viz_period = 1.0 / viz_rate if viz_rate > 0.0 else 0.0
+        self._viz_pub = (self.create_publisher(NexusState, "zeus/state_viz", STATE_QOS)
+                         if viz_rate > 0.0 else None)
         self._js_pub = (self.create_publisher(JointState, "joint_states", 10)
                         if self._js_rate > 0.0 else None)
         self.create_subscription(NexusCommand, "zeus/command", self._on_command, COMMAND_QOS)
@@ -148,6 +156,7 @@ class LinkNode(Node):
         js = JointState()
         js_period = (1.0 / self._js_rate) if self._js_rate > 0.0 else 0.0
         last_js = 0.0
+        last_viz = 0.0
         last_seq = None
 
         while not self._stop.is_set():
@@ -172,6 +181,9 @@ class LinkNode(Node):
                 self._published += 1
 
                 now = time.monotonic()
+                if self._viz_pub is not None and (now - last_viz) >= self._viz_period:
+                    last_viz = now
+                    self._viz_pub.publish(msg)
                 if self._js_pub is not None and (now - last_js) >= js_period:
                     last_js = now
                     js.header.stamp = stamp

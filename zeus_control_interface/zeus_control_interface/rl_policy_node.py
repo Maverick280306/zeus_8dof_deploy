@@ -33,10 +33,24 @@ phase in the start window - and a standing robot is 20-35 deg from it. So:
 
 release:=false stops after step 1: armed, standing at the start pose, nothing
 walking. That is the first thing to run on the robot.
+
+OPERATOR CONTROL (the GUI, or `ros2 service call`). Three std_srvs/Trigger
+services, and a status topic:
+
+    zeus/commander/start   enable: arm into the HOLD (not walking)
+    zeus/commander/walk    release the hold into the gait - accepted only when
+                           the node reports "ready" (holding, every guard clear)
+    zeus/commander/stop    enable off: the board idles every axis. Also the
+                           acknowledgement that clears a fall latch.
+    zeus/commander_status  std_msgs/String, JSON, 10 Hz: mode, blockers, ...
+
+Any stop - a fall, a fault during the ramp, the stop service - leaves enable
+OFF. Nothing re-arms on its own; START has to be pressed again.
 """
 
 from __future__ import annotations
 
+import json
 import time
 
 import numpy as np
@@ -50,6 +64,8 @@ from zeus_link.nexus_proto import (HEALTH_NAMES, JOINT_NAMES, NUM_JOINTS, SAFETY
                                    STREAM_RAMP)
 from .obs_adapter import tilt_of
 from zeus_link.qos import COMMAND_QOS, STATE_QOS
+from std_msgs.msg import String
+from std_srvs.srv import Trigger
 from zeus_msgs.msg import NexusCommand, NexusState
 
 from .obs_adapter import Guards, ObsAdapter, ResidualFilter
@@ -57,7 +73,8 @@ from .policy_runtime import Policy
 
 RATE_HZ = 250.0
 HANDSHAKE_TICKS = 50        # board must read IDLE/ARMED this long before enabling
-STALE_SEC = 0.02            # no new state for 20 ms -> stop enabling
+STALE_SEC = 0.02            # no new state for 20 ms -> hold the last command
+HALT_STALE_SEC = 0.1        # none for 100 ms -> stop, and stay stopped
 
 
 def health_names(mask: int) -> list:
@@ -101,9 +118,19 @@ class RLPolicyNode(Node):
         self.last_tick = None
         self.peak_rad = 0.0
 
+        self.mode = "handshake"
+        self.blockers = []
+        self.stop_reason = None
+        self.last_cmd = None        # what went out last, repeated through a short gap
+
         self.create_subscription(NexusState, 'zeus/state', self.on_state, STATE_QOS)
         self.pub = self.create_publisher(NexusCommand, 'zeus/command', COMMAND_QOS)
+        self.status_pub = self.create_publisher(String, 'zeus/commander_status', 10)
+        self.create_service(Trigger, 'zeus/commander/start', self.on_start)
+        self.create_service(Trigger, 'zeus/commander/walk', self.on_walk)
+        self.create_service(Trigger, 'zeus/commander/stop', self.on_stop)
         self.create_timer(1.0 / RATE_HZ, self.step)
+        self.create_timer(0.1, self.publish_status)
 
         m = self.policy.manifest
         self.get_logger().info(
@@ -125,6 +152,65 @@ class RLPolicyNode(Node):
         self.adapter.reset()
         self.filter.reset()
 
+    def halt(self, reason: str):
+        """Every stop ends here: enable off, and it stays off until START."""
+        self.disengage()
+        self.enable = False
+        self.release = False
+        self.stop_reason = reason
+
+    # ---- operator ------------------------------------------------------------
+
+    def on_start(self, _req, resp):
+        if self.fall is not None:
+            resp.success, resp.message = False, (f"latched after a fall ({self.fall}) - "
+                                                 "press STOP to acknowledge, then START")
+            return resp
+        self.enable = True
+        self.release = False
+        self.stop_reason = None
+        self.get_logger().warn("START: arming into the HOLD")
+        resp.success, resp.message = True, "arming into the hold - the robot ramps to the start pose"
+        return resp
+
+    def on_walk(self, _req, resp):
+        if self.mode != "ready":
+            resp.success = False
+            resp.message = f"not ready to walk (mode {self.mode})" + (
+                ": " + "; ".join(self.blockers) if self.blockers else "")
+            return resp
+        self.release = True
+        self.get_logger().warn("WALK: releasing the hold into the gait"
+                               + (" - DRY RUN, the stored gait alone" if self.dry_run else ""))
+        resp.success, resp.message = True, "released into the gait"
+        return resp
+
+    def on_stop(self, _req, resp):
+        was = self.mode
+        self.fall = None                # STOP is the acknowledgement of a fall
+        self.halt("operator STOP")
+        self.stand_down()
+        self.get_logger().warn(f"STOP (was {was}): enable off, the board idles the drives")
+        resp.success, resp.message = True, "stopped: drives idle"
+        return resp
+
+    def publish_status(self):
+        msg = String()
+        msg.data = json.dumps({
+            "node": "rl_policy",
+            "mode": self.mode,
+            "blockers": self.blockers,
+            "enabled": bool(self.enable),
+            "release": bool(self.release),
+            "dry_run": bool(self.dry_run),
+            "can_walk": True,
+            "residual_peak_deg": round(float(np.degrees(self.peak_rad)), 2),
+            "fall": self.fall,
+            "stop_reason": self.stop_reason,
+            "policy": self.policy.manifest.get("run", "?"),
+        })
+        self.status_pub.publish(msg)
+
     def step(self):
         now = time.monotonic()
         if self.last_tick is not None and now - self.last_tick > 3.0 / RATE_HZ:
@@ -138,8 +224,10 @@ class RLPolicyNode(Node):
         cmd.enable = False
 
         s = self.state
-        fresh = s is not None and (now - self.state_time) < STALE_SEC
+        age = (now - self.state_time) if s is not None else float("inf")
+        fresh = age < STALE_SEC
 
+        self.blockers = []
         if not self.handshake_done:
             # enable false until the link node is listening AND the board says
             # IDLE or ARMED - which is what clears a latched fault
@@ -147,13 +235,36 @@ class RLPolicyNode(Node):
                      and s.safety_state in (SAFETY_IDLE, SAFETY_ARMED))
             self.confirmed = self.confirmed + 1 if ready else 0
             self.handshake_done = self.confirmed >= HANDSHAKE_TICKS
-        elif self.fall is not None or not fresh:
+            self.mode = "handshake"
+        elif self.fall is not None:
             self.disengage()
+            self.mode = "fallen"
+        elif age > HALT_STALE_SEC:
+            # A tenth of a second blind is not a hiccup: stop, and stay stopped.
+            if self.engaged or self.staged:
+                self.get_logger().error(f"STOP: no state from the board for {1e3 * age:.0f} ms")
+                self.halt("the board's state stopped arriving")
+            self.mode = "no_state"
+        elif not fresh and (self.engaged or self.staged) and self.last_cmd is not None:
+            # A short gap - DDS delivery or a loaded Pi, measured on the fake
+            # board at >20 ms under test load. Keep sending exactly what went
+            # out last: the board keeps interpolating towards it, and its own
+            # link watchdog is 200 ms. Disarming here dropped the robot out of
+            # its ramp; doing nothing would let the board's link fault do it.
+            self.last_cmd.header.stamp = self.get_clock().now().to_msg()
+            self.pub.publish(self.last_cmd)
+            return
+        elif not fresh:
+            self.mode = "no_state"
         elif not self.enable:
-            pass
+            if self.engaged or self.staged:
+                self.disengage()
+            self.mode = "watching"
         elif not self.engaged and not self.staged and not self.ankles_ok:
             why = ankle_zero_problems(s.joint_pos, s.act_flags, self.ankle_tol)
+            self.mode = "ankle_check"
             if why:
+                self.blockers = why
                 self.get_logger().warn("not arming - ankle pre-check: " + "; ".join(why),
                                        throttle_duration_sec=2.0)
             else:
@@ -163,19 +274,23 @@ class RLPolicyNode(Node):
         elif not self.engaged and not self.staged:
             why = self.gate.arm_blockers(s, health_names)
             if why:
+                self.mode, self.blockers = "blocked", why
                 self.get_logger().info("not arming: " + "; ".join(why),
                                        throttle_duration_sec=2.0)
             else:
                 self.staged = True
+                self.mode = "arming"
                 self.get_logger().warn("arm guards clear: arming into HOLD - the board "
                                        "ramps to the start pose over 3 s")
                 self.stage(s, cmd)
         elif self.staged:
             self.stage(s, cmd)
         else:
+            self.mode = "walking"
             self.run_policy(s, cmd)
 
         self.pub.publish(cmd)
+        self.last_cmd = cmd
 
     def stage(self, s, cmd):
         """Armed into the hold: keep it there, and release when allowed."""
@@ -183,34 +298,42 @@ class RLPolicyNode(Node):
         q = q / max(float(np.linalg.norm(q)), 1e-6)
         if s.health or tilt_of(q) > self.policy.tilt_stop:
             # Something went wrong while the robot was being moved to the pose.
-            # Stand down; the board ramps again from wherever it ends up.
-            self.get_logger().error(
-                "STOP during the soft start: "
-                + ("health faults: " + ", ".join(health_names(s.health)) if s.health
-                   else "torso past the tilt limit"))
-            self.disengage()
+            # Stand down, and STAY down: START has to be pressed again.
+            reason = ("health faults during the soft start: " + ", ".join(health_names(s.health))
+                      if s.health else "torso past the tilt limit during the soft start")
+            self.get_logger().error("STOP: " + reason)
+            self.halt(reason)
+            self.mode = "stopped"
             return
 
         cmd.enable = True
         cmd.hold = True
         if s.stream_flags & STREAM_ARM_BLOCKED:
+            self.mode, self.blockers = "arm_refused", [
+                "the board refuses to arm: a joint has no position (zero the ankles)"]
             self.get_logger().warn("board refuses to arm: a joint has no position "
                                    "(zero the ankles: ros2 run zeus_bringup zeus zero-ankles)",
                                    throttle_duration_sec=2.0)
             return
         if s.stream_flags & STREAM_RAMP:
+            self.mode = "ramping"
             self.get_logger().info("ramping to the start pose", throttle_duration_sec=1.0)
             return
         if not s.stream_flags & STREAM_HOLD:
+            self.mode = "arming"
             return      # not armed yet: the board is bringing the drives up
 
         why = self.gate.arm_blockers(s, health_names) + self.gate.release_blockers(s)
+        self.blockers = why
         if not self.release:
-            self.get_logger().info("HOLDING the start pose (release:=false)"
-                                   + (" - would not release: " + "; ".join(why) if why else ""),
+            self.mode = "holding" if why else "ready"
+            self.get_logger().info("HOLDING the start pose"
+                                   + (" - would not release: " + "; ".join(why) if why else
+                                      " - ready to walk"),
                                    throttle_duration_sec=2.0)
             return
         if why:
+            self.mode = "holding"
             self.get_logger().info("holding, not releasing: " + "; ".join(why),
                                    throttle_duration_sec=2.0)
             return
@@ -235,8 +358,9 @@ class RLPolicyNode(Node):
                 self.filter.command(action)
         if why is not None:
             self.fall = why
-            self.get_logger().error(f"STOP: {why}. Drives idled; restart this node to go again.")
-            self.disengage()
+            self.get_logger().error(f"STOP: {why}. Drives idled; press STOP to acknowledge, "
+                                    "then START to go again.")
+            self.halt(f"fall: {why}")
             return
 
         self.tick += 1
@@ -274,6 +398,12 @@ def main(args=None):
         rclpy.spin(node)
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
+    except RuntimeError:
+        # Ctrl-C can surface from inside an rclpy read as a RuntimeError while
+        # the context is being torn down (Jazzy). After shutdown has begun
+        # it is noise; while ROS is still running it is a real error.
+        if rclpy.ok():
+            raise
     finally:
         if rclpy.ok():
             node.stand_down()

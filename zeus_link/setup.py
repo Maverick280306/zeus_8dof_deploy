@@ -24,6 +24,7 @@ setup(
             'link_check = zeus_link.link_check:main',
             'link_validate = zeus_link.link_validate:main',
             'fake_board = zeus_link.fake_board:main',
+            'zeus_gui = zeus_link.gui_node:main',
         ],
     },
 )

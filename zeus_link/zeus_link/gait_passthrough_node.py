@@ -40,9 +40,13 @@ and enable.
 
 from __future__ import annotations
 
+import json
+
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from std_msgs.msg import String
+from std_srvs.srv import Trigger
 from zeus_msgs.msg import NexusCommand, NexusState
 
 from .nexus_proto import (HEALTH_NAMES, NUM_JOINTS, SAFETY_ARMED, SAFETY_IDLE,
@@ -83,6 +87,17 @@ class GaitPassthroughNode(Node):
         self._confirmed = 0
         self._handshake_done = False
 
+        self._stop_reason = None
+        self._status_pub = self.create_publisher(String, "zeus/commander_status", 10)
+        # The same operator interface as rl_policy_node, so the GUI drives
+        # either. START arms into the hold; WALK is refused here - the stored
+        # gait alone falls within a second (sim_check/RESULTS.md: 0.7 s).
+        self.create_service(Trigger, "zeus/commander/start", self._on_start)
+        self.create_service(Trigger, "zeus/commander/walk", self._on_walk)
+        self.create_service(Trigger, "zeus/commander/stop", self._on_stop)
+        self.create_timer(0.1, self._publish_status)
+        self._flags = 0
+
         self.create_timer(1.0 / rate, self._tick)
 
         if self._enable and self._hold:
@@ -101,6 +116,10 @@ class GaitPassthroughNode(Node):
     def _tick(self) -> None:
         if not self._handshake_done:
             self._handshake()
+        elif not self._enable:
+            self._cmd.enable = False
+        elif self._ankles_ok:
+            self._cmd.enable = True
         elif self._enable and not self._ankles_ok:
             # Hold enable back until the ankles are known to be zeroed.
             why = (["no zeus/state yet"] if self._pos is None else
@@ -142,10 +161,64 @@ class GaitPassthroughNode(Node):
         self.get_logger().info(f"sending enable false until the board is ready: {why}",
                                throttle_duration_sec=2.0)
 
+    def _on_start(self, _req, resp):
+        self._enable = True
+        self._stop_reason = None
+        self.get_logger().warn("START: arming into the "
+                               + ("HOLD" if self._hold else "running gait"))
+        resp.success = True
+        resp.message = ("arming into the hold - the robot ramps to the start pose and stands"
+                        if self._hold else "arming into the running gait")
+        return resp
+
+    def _on_walk(self, _req, resp):
+        resp.success = False
+        resp.message = ("the stand test does not walk: the stored gait without the policy falls "
+                        "within a second in simulation. Use policy:=rl to walk.")
+        return resp
+
+    def _on_stop(self, _req, resp):
+        self._enable = False
+        self._stop_reason = "operator STOP"
+        self.stand_down()
+        self._handshake_done = True
+        self.get_logger().warn("STOP: enable off, the board idles the drives")
+        resp.success, resp.message = True, "stopped: drives idle"
+        return resp
+
+    def _publish_status(self) -> None:
+        if not self._handshake_done:
+            mode, blockers = "handshake", []
+        elif not self._enable:
+            mode, blockers = "watching", []
+        elif not self._ankles_ok:
+            mode = "ankle_check"
+            blockers = (["no zeus/state yet"] if self._pos is None else
+                        ankle_zero_problems(self._pos, self._act_flags, self._ankle_tol))
+        elif self._flags & STREAM_ARM_BLOCKED:
+            mode, blockers = "arm_refused", ["the board refuses to arm: a joint has no position"]
+        elif self._flags & STREAM_RAMP:
+            mode, blockers = "ramping", []
+        elif self._flags & STREAM_HOLD:
+            mode, blockers = "holding", []
+        elif self._safety == SAFETY_ARMED:
+            mode, blockers = "running", []
+        else:
+            mode, blockers = "arming", []
+        msg = String()
+        msg.data = json.dumps({
+            "node": "gait_passthrough", "mode": mode, "blockers": blockers,
+            "enabled": bool(self._enable), "release": False, "dry_run": False,
+            "can_walk": False, "residual_peak_deg": 0.0, "fall": None,
+            "stop_reason": self._stop_reason, "policy": "stored gait (stand test)",
+        })
+        self._status_pub.publish(msg)
+
     def _on_state(self, msg: NexusState) -> None:
         self._health = msg.health
         self._pos = list(msg.joint_pos)
         self._act_flags = list(msg.act_flags)
+        self._flags = msg.stream_flags
 
         soft = ("ramping to the start pose" if msg.stream_flags & STREAM_RAMP else
                 "holding the start pose" if msg.stream_flags & STREAM_HOLD else
@@ -179,6 +252,12 @@ def main(args=None) -> None:
         rclpy.spin(node)
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
+    except RuntimeError:
+        # Ctrl-C can surface from inside an rclpy read as a RuntimeError while
+        # the context is being torn down (Jazzy). After shutdown has begun
+        # it is noise; while ROS is still running it is a real error.
+        if rclpy.ok():
+            raise
     finally:
         # Only possible if the context is still up. On ctrl-c it is not, and
         # the robot is idled another way: commands stop, and 200 ms later the
