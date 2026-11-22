@@ -222,18 +222,12 @@ def cmd_check(args) -> int:
     check(not nan, "every joint has a position",
           "no position (NaN): " + ", ".join(nan) + " - the board will not arm")
 
-    # The ankles lose their zero on every reboot and are zeroed by hand each
-    # session, feet flat. This is the check it was done (zeus_link/precheck.py).
+    # The ankles are only REPORTED, not judged: they are zeroed when the link
+    # node starts and whenever `zeus zero-ankles` / the GUI button is used.
     from zeus_link.nexus_proto import JOINT_INDEX
-    from zeus_link.precheck import ANKLE_ZERO_TOL_DEG, ankle_zero_problems
-    window_flags = [0x01 if f >= 0.5 else 0 for f in fresh_frac]
-    why = ankle_zero_problems(last.joint_pos, window_flags)
     la = math.degrees(last.joint_pos[JOINT_INDEX["left_ankle_pitch"]])
     ra = math.degrees(last.joint_pos[JOINT_INDEX["right_ankle_pitch"]])
-    check(not why,
-          f"ankles at zero, feet flat: left {la:+.2f}, right {ra:+.2f} deg "
-          f"(within {ANKLE_ZERO_TOL_DEG:g})",
-          "ANKLE ZERO: " + "; ".join(why))
+    print(f"  info  ankles read left {la:+.2f}, right {ra:+.2f} deg")
 
     print("\nsensors")
     gyro = max(abs(v) for v in last.imu_gyro)

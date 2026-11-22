@@ -71,7 +71,6 @@ from .nexus_proto import (FUSION_OK, HEALTH_NAMES, JOINT_NAMES, SAFETY_ARMED, SA
                           STREAM_RAMP, STREAM_RETURN)
 from .gui_key import gui_url, stable_key
 from .odrive_names import axis_state_name, error_names
-from .precheck import ANKLE_ZERO_TOL_DEG, ankle_zero_problems
 from .qos import STATE_QOS
 
 # No heartbeat this long while armed from the page -> STOP. Not 0.5: browsers
@@ -348,13 +347,6 @@ class GuiNode(Node):
                if not math.isfinite(float(s.joint_pos[j]))]
         chk(not nan, "every joint has a position",
             "no position (NaN): " + ", ".join(nan) + " - the board will not arm")
-        # Only a pre-flight question: armed, the ankles are SUPPOSED to be at the
-        # start pose's -14..-19 deg, and a red cross there sent the operator
-        # hunting for a zero that was fine.
-        if s.safety_state != SAFETY_ARMED:
-            why = ankle_zero_problems(s.joint_pos, [1 if f >= 0.5 else 0 for f in fresh])
-            chk(not why, f"ankles at zero (within {ANKLE_ZERO_TOL_DEG:g} deg) - feet flat",
-                "; ".join(why))
         chk(abs(acc - GRAVITY) < 0.5, f"IMU reads {acc:.2f} m/s^2",
             f"IMU reads {acc:.2f} m/s^2 (expected ~9.81 standing still)", warn=True)
         low = [f"{SPRING_NAMES[i]} {100 * v:.0f}%" for i, v in enumerate(enc) if v < 0.95]
@@ -583,7 +575,7 @@ document.addEventListener("keydown", e => { if (e.code === "Space"){ e.preventDe
 setInterval(() => { fetch("/api/heartbeat", {method:"POST", headers:H}).catch(()=>{}); }, 200);
 
 const MODES = {handshake:"Connecting to the board", watching:"Ready to START",
-  ankle_check:"Ankle pre-check failing", blocked:"Cannot arm yet", arming:"Arming the drives",
+blocked:"Cannot arm yet", arming:"Arming the drives",
   arm_refused:"Board refuses to arm", ramping:"Ramping to the start pose",
   holding:"Holding the start pose",
   returning:"Going back to the standing pose", home:"Back at the standing pose — press STOP to idle the drives", ready:"Holding — READY TO WALK", walking:"WALKING",

@@ -108,6 +108,10 @@ class LinkNode(Node):
         # that could be forgotten. Retried until both drives report and it is
         # confirmed; never while armed.
         self._auto_zero = bool(self.declare_parameter("zero_ankles_on_start", True).value)
+        # Until that first zero has happened, every command goes out with
+        # enable false: an arm before it would leave the ankles on whatever
+        # stale zero they came up with, and once armed the zero is refused.
+        self._zero_pending = self._auto_zero
         if self._auto_zero:
             self._auto_zero_timer = self.create_timer(0.5, self._auto_zero_ankles)
 
@@ -282,7 +286,11 @@ class LinkNode(Node):
             flags |= CMD_ZERO_ANKLES
         if getattr(msg, "return_home", False):
             flags |= CMD_RETURN
-        self._send(turns, bool(msg.enable) and not self._stood_down, flags)
+        if msg.enable and self._zero_pending:
+            self.get_logger().info("holding enable false until the ankles are zeroed on start",
+                                   throttle_duration_sec=2.0)
+        self._send(turns, bool(msg.enable) and not self._stood_down and not self._zero_pending,
+                   flags)
         self._commands += 1
 
     def _send(self, turns, enable: bool, flags: int = 0) -> None:
@@ -351,6 +359,7 @@ class LinkNode(Node):
         if pkt.safety_state == SAFETY_ARMED:
             self.get_logger().warn("ankle auto-zero skipped: the board is already armed")
             self._auto_zero_timer.cancel()
+            self._zero_pending = False
             return
         silent = [JOINT_NAMES[i] for i in ankles if not pkt.act_flags[i] & ACT_TELEM_FRESH]
         if silent:
@@ -361,6 +370,7 @@ class LinkNode(Node):
         resp = self._on_zero_ankles(None, Trigger.Response())
         if resp.success:
             self._auto_zero_timer.cancel()
+            self._zero_pending = False
             self.get_logger().warn(f"ANKLES ZEROED ON START (they read {before} deg) - "
                                    "the feet must have been flat")
 

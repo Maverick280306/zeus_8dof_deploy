@@ -52,7 +52,7 @@ from zeus_msgs.msg import NexusCommand, NexusState
 from .nexus_proto import (HEALTH_NAMES, NUM_JOINTS, SAFETY_ARMED, SAFETY_IDLE,
                           SAFETY_NAMES, STREAM_ARM_BLOCKED, STREAM_HOLD, STREAM_RAMP,
                           STREAM_RETURN)
-from .precheck import ANKLE_ZERO_TOL_DEG, ankle_zero_problems, return_refusal
+from .precheck import return_refusal
 from .qos import COMMAND_QOS, STATE_QOS
 
 HANDSHAKE_SEC = 0.2
@@ -67,11 +67,6 @@ class GaitPassthroughNode(Node):
         rate = float(self.declare_parameter("rate_hz", 250.0).value)
         self._enable = bool(self.declare_parameter("enable", False).value)
         self._hold = bool(self.declare_parameter("hold", True).value)
-        # Ankle-zero pre-check (zeus_link/precheck.py), once, before the first
-        # arm, while the robot still stands on flat feet. 0 turns it off.
-        self._ankle_tol = float(self.declare_parameter(
-            "ankle_zero_tol_deg", ANKLE_ZERO_TOL_DEG).value)
-        self._ankles_ok = self._ankle_tol <= 0.0
         self._pos = None
         self._act_flags = None
 
@@ -123,21 +118,13 @@ class GaitPassthroughNode(Node):
             self._handshake()
         elif not self._enable:
             self._cmd.enable = False
-        elif self._ankles_ok:
+        else:
+            # No ankle-zero pre-check any more (removed 2026-11-23): the robot
+            # is not always upright with its feet flat, so "both ankles read
+            # zero" was a condition the builder often could not meet. The
+            # ankles are zeroed when the link node starts and whenever ZERO
+            # ANKLES is pressed.
             self._cmd.enable = True
-        elif self._enable and not self._ankles_ok:
-            # Hold enable back until the ankles are known to be zeroed.
-            why = (["no zeus/state yet"] if self._pos is None else
-                   ankle_zero_problems(self._pos, self._act_flags, self._ankle_tol))
-            if why:
-                self._cmd.enable = False
-                self.get_logger().warn("not arming - ankle pre-check: " + "; ".join(why),
-                                       throttle_duration_sec=2.0)
-            else:
-                self._ankles_ok = True
-                self._cmd.enable = True
-                self.get_logger().info("ankle pre-check passed: both within "
-                                       f"{self._ankle_tol:g} deg of zero")
         self._cmd.header.stamp = self.get_clock().now().to_msg()
         self._pub.publish(self._cmd)
 
@@ -149,8 +136,7 @@ class GaitPassthroughNode(Node):
         self._confirmed = self._confirmed + 1 if (listening and ready) else 0
         if self._confirmed >= self._handshake_ticks:
             self._handshake_done = True
-            # Enable only once the ankle pre-check has passed; _tick does it.
-            self._cmd.enable = self._enable and self._ankles_ok
+            self._cmd.enable = self._enable
             self.get_logger().info(
                 f"handshake confirmed, board IDLE; enable -> {str(self._enable).lower()}")
             return
@@ -205,10 +191,6 @@ class GaitPassthroughNode(Node):
             mode, blockers = "handshake", []
         elif not self._enable:
             mode, blockers = "watching", []
-        elif not self._ankles_ok:
-            mode = "ankle_check"
-            blockers = (["no zeus/state yet"] if self._pos is None else
-                        ankle_zero_problems(self._pos, self._act_flags, self._ankle_tol))
         elif self._flags & STREAM_ARM_BLOCKED:
             mode, blockers = "arm_refused", ["the board refuses to arm: a joint has no position"]
         elif self._flags & STREAM_RETURN:

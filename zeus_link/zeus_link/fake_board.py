@@ -77,7 +77,7 @@ class FakeBoard:
             self.gait_period = float(z["gait_period"])
         self.ramp_from = [0.0] * P.NUM_JOINTS
         # --ankle-offset: a right ankle whose zero was lost, as seen on the
-        # robot (6.5 and 10 deg). What the ankle pre-check must catch.
+        # robot (6.5 and 10 deg). What the link node's zero-on-start must clear.
         self.ankle_offset = math.radians(ankle_offset_deg)
         self.lock = threading.Lock()
         self.t0 = time.monotonic()

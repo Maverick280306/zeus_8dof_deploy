@@ -9,7 +9,7 @@ Needs a built, sourced workspace, like zeus_link/test/e2e_fake_board.py:
   2. enable true, default dry_run    arms, and says it is sending zero
   3. enable true, dry_run false      arms, residuals move, none rejected
   4. enable true, release false     arms into the soft-start hold, never walks
-  5. a lost right-ankle zero          the ankle pre-check never lets it arm
+  5. a lost right-ankle zero          zeroed by the link node on start, then arms
   6. wrong gait (fake_board's default stride)  the guards never let it arm
 
 Every arm goes through the v11 soft start: arm into HOLD, ramp to the start
