@@ -203,19 +203,26 @@ def cmd_check(args) -> int:
     check(overruns == 0, "no missed ticks", f"{overruns} missed ticks while watching")
 
     print("\ndrives")
+    # Fresh over the window, not in one packet: a drive's 1 kHz message and the
+    # board's 1 kHz packet beat against each other, so any single packet can
+    # miss it (76-97% per packet measured) and one-packet judging reported
+    # healthy drives as "not reporting" at random.
+    fresh_frac = [sum(st.act_flags[j] & 0x01 for st in states) / len(states)
+                  for j in range(len(JOINT_NAMES))]
     for j, name in enumerate(JOINT_NAMES):
         err = last.act_error[j]
-        fresh = last.act_flags[j] & 0x01
         state = axis_state_name(last.act_state[j])
-        ok = (err == 0) and fresh
+        ok = (err == 0) and fresh_frac[j] >= 0.5
         check(ok, f"{name:18s} {state}, no errors",
-              f"{name:18s} {state}" + (f", error 0x{err:08X}" if err else ", not reporting"))
+              f"{name:18s} {state}" + (f", error 0x{err:08X}" if err else
+                                        f", reporting in only {100 * fresh_frac[j]:.0f}% of packets"))
 
     # The ankles lose their zero on every reboot and are zeroed by hand each
     # session, feet flat. This is the check it was done (zeus_link/precheck.py).
     from zeus_link.nexus_proto import JOINT_INDEX
     from zeus_link.precheck import ANKLE_ZERO_TOL_DEG, ankle_zero_problems
-    why = ankle_zero_problems(last.joint_pos, last.act_flags)
+    window_flags = [0x01 if f >= 0.5 else 0 for f in fresh_frac]
+    why = ankle_zero_problems(last.joint_pos, window_flags)
     la = math.degrees(last.joint_pos[JOINT_INDEX["left_ankle_pitch"]])
     ra = math.degrees(last.joint_pos[JOINT_INDEX["right_ankle_pitch"]])
     check(not why,
