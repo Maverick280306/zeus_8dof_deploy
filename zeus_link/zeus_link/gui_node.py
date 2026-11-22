@@ -320,6 +320,13 @@ class GuiNode(Node):
         bad = [f"{JOINT_NAMES[j]}: {', '.join(error_names(s.act_error[j])) or 'not reporting'}"
                for j in range(len(JOINT_NAMES)) if s.act_error[j] or fresh[j] < 0.5]
         chk(not bad, "all 8 drives reporting, no errors", "; ".join(bad))
+        # A drive can report, error-free, a position that is not a number - the
+        # ankles after a reboot, and the left knee at times. The board will not
+        # arm with one; say which, before START is pressed.
+        nan = [JOINT_NAMES[j] for j in range(len(JOINT_NAMES))
+               if not math.isfinite(float(s.joint_pos[j]))]
+        chk(not nan, "every joint has a position",
+            "no position (NaN): " + ", ".join(nan) + " - the board will not arm")
         why = ankle_zero_problems(s.joint_pos, [1 if f >= 0.5 else 0 for f in fresh])
         chk(not why, f"ankles at zero (within {ANKLE_ZERO_TOL_DEG:g} deg) - feet flat",
             "; ".join(why))
@@ -422,7 +429,14 @@ class Server(ThreadingHTTPServer):
 def main(args=None) -> None:
     rclpy.init(args=args)
     node = GuiNode()
-    server = Server(("0.0.0.0", node.port), make_handler(node))
+    try:
+        server = Server(("0.0.0.0", node.port), make_handler(node))
+    except OSError as exc:
+        node.get_logger().fatal(f"GUI cannot open port {node.port}: {exc}. Another GUI or "
+                                "launch still running? Stop it, or pass gui_port:=8081.")
+        node.destroy_node()
+        rclpy.try_shutdown()
+        return
     threading.Thread(target=server.serve_forever, daemon=True).start()
     # One executor thread is enough at 50 Hz, and every extra one competes with
     # the web server for the interpreter. Service calls are still answered: the

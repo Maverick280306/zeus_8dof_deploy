@@ -217,6 +217,11 @@ def cmd_check(args) -> int:
               f"{name:18s} {state}" + (f", error 0x{err:08X}" if err else
                                         f", reporting in only {100 * fresh_frac[j]:.0f}% of packets"))
 
+    nan = [JOINT_NAMES[j] for j in range(len(JOINT_NAMES))
+           if not math.isfinite(last.joint_pos[j])]
+    check(not nan, "every joint has a position",
+          "no position (NaN): " + ", ".join(nan) + " - the board will not arm")
+
     # The ankles lose their zero on every reboot and are zeroed by hand each
     # session, feet flat. This is the check it was done (zeus_link/precheck.py).
     from zeus_link.nexus_proto import JOINT_INDEX
