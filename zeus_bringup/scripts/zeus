@@ -211,6 +211,18 @@ def cmd_check(args) -> int:
         check(ok, f"{name:18s} {state}, no errors",
               f"{name:18s} {state}" + (f", error 0x{err:08X}" if err else ", not reporting"))
 
+    # The ankles lose their zero on every reboot and are zeroed by hand each
+    # session, feet flat. This is the check it was done (zeus_link/precheck.py).
+    from zeus_link.nexus_proto import JOINT_INDEX
+    from zeus_link.precheck import ANKLE_ZERO_TOL_DEG, ankle_zero_problems
+    why = ankle_zero_problems(last.joint_pos, last.act_flags)
+    la = math.degrees(last.joint_pos[JOINT_INDEX["left_ankle_pitch"]])
+    ra = math.degrees(last.joint_pos[JOINT_INDEX["right_ankle_pitch"]])
+    check(not why,
+          f"ankles at zero, feet flat: left {la:+.2f}, right {ra:+.2f} deg "
+          f"(within {ANKLE_ZERO_TOL_DEG:g})",
+          "ANKLE ZERO: " + "; ".join(why))
+
     print("\nsensors")
     gyro = max(abs(v) for v in last.imu_gyro)
     accel = math.sqrt(sum(v * v for v in last.imu_accel))
@@ -222,8 +234,17 @@ def cmd_check(args) -> int:
           warn_only=True)
     check(gyro < STILL_GYRO, f"gyro quiet ({gyro:.3f} rad/s)",
           f"gyro reads {gyro:.3f} rad/s - is the robot moving?", warn_only=True)
-    check(last.enc_valid == 0x0F, "all four spring encoders reading",
-          f"spring encoders reading: 0x{last.enc_valid:X} of 0xF")
+    # Over the whole window, not one packet: the left knee's sensor drops
+    # out in bursts, so a single packet passed or failed at random. Bad reads
+    # are dropped on the board and the last good value used, so a low figure
+    # is a wiring problem to fix, not a reason to stop.
+    from zeus_link.nexus_proto import SPRING_NAMES
+    valid = [100.0 * sum((st.enc_valid >> i) & 1 for st in states) / len(states)
+             for i in range(len(SPRING_NAMES))]
+    low = [f"{SPRING_NAMES[i]} {v:.0f}%" for i, v in enumerate(valid) if v < 95.0]
+    check(not low, "spring encoders: " + ", ".join(f"{v:.0f}%" for v in valid) + " valid",
+          "spring encoders valid only: " + ", ".join(low) + " (bad reads are dropped; "
+          "check that sensor's wiring)", warn_only=True)
 
     down = [n for i, n in enumerate(CONTACT_NAMES) if last.contact[i] > 0.5]
     print(f"  --    foot switches closed: {', '.join(down) if down else 'none'}"

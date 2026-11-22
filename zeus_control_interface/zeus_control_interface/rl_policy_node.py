@@ -44,6 +44,7 @@ import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from zeus_link.convert import RESIDUAL_LIMIT_RAD
+from zeus_link.precheck import ANKLE_ZERO_TOL_DEG, ankle_zero_problems
 from zeus_link.nexus_proto import (HEALTH_NAMES, JOINT_NAMES, NUM_JOINTS, SAFETY_ARMED,
                                    SAFETY_IDLE, STREAM_ARM_BLOCKED, STREAM_HOLD,
                                    STREAM_RAMP)
@@ -70,6 +71,11 @@ class RLPolicyNode(Node):
         self.enable = bool(self.declare_parameter('enable', False).value)
         self.dry_run = bool(self.declare_parameter('dry_run', True).value)
         self.release = bool(self.declare_parameter('release', True).value)
+        # Ankle-zero pre-check (zeus_link/precheck.py): once, before the first
+        # arm, while the robot still stands on flat feet. 0 turns it off.
+        self.ankle_tol = float(self.declare_parameter(
+            'ankle_zero_tol_deg', ANKLE_ZERO_TOL_DEG).value)
+        self.ankles_ok = self.ankle_tol <= 0.0
 
         self.policy = Policy()
         # Where the IMU really is, in base_link. Default is the training model's,
@@ -145,6 +151,15 @@ class RLPolicyNode(Node):
             self.disengage()
         elif not self.enable:
             pass
+        elif not self.engaged and not self.staged and not self.ankles_ok:
+            why = ankle_zero_problems(s.joint_pos, s.act_flags, self.ankle_tol)
+            if why:
+                self.get_logger().warn("not arming - ankle pre-check: " + "; ".join(why),
+                                       throttle_duration_sec=2.0)
+            else:
+                self.ankles_ok = True
+                self.get_logger().info("ankle pre-check passed: both within "
+                                       f"{self.ankle_tol:g} deg of zero")
         elif not self.engaged and not self.staged:
             why = self.gate.arm_blockers(s, health_names)
             if why:

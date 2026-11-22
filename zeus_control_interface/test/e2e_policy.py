@@ -9,7 +9,8 @@ Needs a built, sourced workspace, like zeus_link/test/e2e_fake_board.py:
   2. enable true, default dry_run    arms, and says it is sending zero
   3. enable true, dry_run false      arms, residuals move, none rejected
   4. enable true, release false     arms into the soft-start hold, never walks
-  5. wrong gait (fake_board's default stride)  the guards never let it arm
+  5. a lost right-ankle zero          the ankle pre-check never lets it arm
+  6. wrong gait (fake_board's default stride)  the guards never let it arm
 
 Every arm goes through the v11 soft start: arm into HOLD, ramp to the start
 pose, then (unless release:=false) release into the gait.
@@ -43,10 +44,11 @@ ENV = dict(os.environ, ROS_DOMAIN_ID=str(100 + os.getpid() % 50),
            ROS_AUTOMATIC_DISCOVERY_RANGE="LOCALHOST", PYTHONUNBUFFERED="1")
 
 
-def scenario(name, seconds, *params, gait=True):
+def scenario(name, seconds, *params, gait=True, board_extra=()):
     link, summary = os.path.join(tmp, name), os.path.join(tmp, name + ".json")
     log = open(os.path.join(tmp, name + ".log"), "w+")
-    board_args = ["--link", link, "--summary", summary, "--duration", str(seconds + 8)]
+    board_args = ["--link", link, "--summary", summary, "--duration", str(seconds + 8),
+                  *board_extra]
     board = subprocess.Popen([os.path.join(LINK, "fake_board"), *board_args,
                               *(["--gait", GAIT] if gait else [])],
                              stdout=log, stderr=subprocess.STDOUT, env=ENV)
@@ -103,6 +105,12 @@ check(any(e[2] == "ARMED" and "HOLD" in e[3] for e in s["events"]), "board armed
 check("HOLDING the start pose" in log, "node reports it is holding the start pose")
 check("released at phase" not in log, "and never released into the gait")
 check("Traceback" not in log, "no exception")
+
+print("right ankle zero lost (reads 6.5 deg with the feet flat):", flush=True)
+s, log = scenario("ankle", 8, "enable:=true", "release:=false",
+                  board_extra=("--ankle-offset", "6.5"))
+check(not [e for e in s["events"] if e[2] == "ARMED"], "the ankle pre-check kept it from arming")
+check("ankle pre-check" in log and "right_ankle_pitch reads +6.5" in log, "and named the ankle")
 
 print("wrong stored gait:", flush=True)
 s, log = scenario("wrong", 8, "enable:=true", "dry_run:=false", gait=False)

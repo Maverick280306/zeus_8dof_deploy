@@ -53,7 +53,8 @@ SOFT_RAMP_S = 3.0      # soft_start.h SOFT_START_RAMP_S
 
 class FakeBoard:
 
-    def __init__(self, link_path: str, error_at: float = -1.0, gait: str = "") -> None:
+    def __init__(self, link_path: str, error_at: float = -1.0, gait: str = "",
+                 ankle_offset_deg: float = 0.0) -> None:
         self.master, slave = os.openpty()
         tty.setraw(slave)
         self._slave = slave
@@ -75,6 +76,9 @@ class FakeBoard:
             self.gait_q = np.asarray(z["gait_q"], dtype=np.float64)
             self.gait_period = float(z["gait_period"])
         self.ramp_from = [0.0] * P.NUM_JOINTS
+        # --ankle-offset: a right ankle whose zero was lost, as seen on the
+        # robot (6.5 and 10 deg). What the ankle pre-check must catch.
+        self.ankle_offset = math.radians(ankle_offset_deg)
         self.lock = threading.Lock()
         self.t0 = time.monotonic()
         self.safety = P.SAFETY_BOOT
@@ -245,7 +249,9 @@ class FakeBoard:
                 errors[P.JOINT_INDEX["right_ankle_pitch"]] = 0x08000200
             if self.gait_q is None:
                 ref = [0.2 * math.sin(w + j + 0.05) for j in range(P.NUM_JOINTS)]
-                pos = [0.2 * math.sin(w + j) for j in range(P.NUM_JOINTS)]
+                # Standing still until armed, like the robot.
+                pos = ([0.2 * math.sin(w + j) for j in range(P.NUM_JOINTS)]
+                       if safety == P.SAFETY_ARMED else [0.0] * P.NUM_JOINTS)
                 extra = {}
             else:
                 n = self.gait_q.shape[0]
@@ -267,6 +273,8 @@ class FakeBoard:
                 extra = dict(fused_valid=P.FUSION_OK, fk_valid=3,
                              quat=[1.0, 0.0, 0.0, 0.0], pelvis_z=0.77,
                              foot_z=[0.0, 0.0], contact=[1.0, 1.0])
+            pos = list(pos)
+            pos[P.JOINT_INDEX["right_ankle_pitch"]] += self.ankle_offset
             pkt = pack_state(state_values(
                 seq=seq, timestamp_us=(seq * 1000) & 0xFFFFFFFF, phase=phase,
                 joint_pos=pos,
@@ -279,6 +287,10 @@ class FakeBoard:
                 act_target=(list(ref) if safety == P.SAFETY_ARMED
                             else [float("nan")] * P.NUM_JOINTS),
                 gains_seq=self.gains_seq,
+                # Every drive reporting, telemetry and heartbeat. The synthetic
+                # template's own act_flags are deliberately distinct per joint
+                # (to catch a field swap) and mark one drive silent.
+                act_flags=[P.ACT_TELEM_FRESH | P.ACT_HB_FRESH] * P.NUM_JOINTS,
                 stream_flags=stream,
                 act_error=errors, **extra))
             try:
@@ -310,13 +322,16 @@ def main(argv=None) -> int:
     ap.add_argument("--link", default=DEFAULT_LINK, help="symlink to create for the pty")
     ap.add_argument("--duration", type=float, default=0.0, help="seconds; 0 runs until ctrl-c")
     ap.add_argument("--summary", help="write a JSON summary here on exit")
+    ap.add_argument("--ankle-offset", type=float, default=0.0,
+                    help="deg added to the right ankle's reading: a lost zero")
     ap.add_argument("--gait", default="",
                     help="a policy.npz: play its stride, and model the soft start on the legs")
     ap.add_argument("--error-at", type=float, default=-1.0,
                     help="report an ODrive error on right_ankle_pitch for 1 s from this time")
     a = ap.parse_args(argv)
 
-    board = FakeBoard(a.link, error_at=a.error_at, gait=a.gait)
+    board = FakeBoard(a.link, error_at=a.error_at, gait=a.gait,
+                      ankle_offset_deg=a.ankle_offset)
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: board.stop())
     print(f"fake STM32 streaming 1 kHz on {a.link}\n"
