@@ -250,6 +250,12 @@ Match it. It is unusually heavily commented and that is deliberate.
   `link_proto.h`, `stm32_zeuss/pi/nexus_proto.py` (**canonical**), the copy in
   `zeus_26/zeus_link/zeus_link/nexus_proto.py`, and `NexusState.msg` together.
   `check_proto.py` and `test_msg_matches_proto.py` enforce it.
+- **Every change to the policy deployment is logged in `docs/POLICY_CHANGES.md`**,
+  in the same commit. That covers anything in `zeus_control_interface/`, and
+  anything elsewhere that changes what the network sees (the 44-float policy
+  block, spring signs, the estimator) or the PD it drives (gains, drive modes,
+  start phase). The policy came from Vedant (software lead); that file is how
+  he sees what changed since his handover (`706d305`).
 - **Stage only your own changes.** The user keeps bench edits uncommitted in
   `test_leg_can.c`.
 - **Verify the way CI does** — grep the whole tree after a rename, run tests from
