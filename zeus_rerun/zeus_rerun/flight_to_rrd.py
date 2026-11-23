@@ -80,7 +80,7 @@ def _index(robot_s, pi_s):
             rr.TimeColumn("pi", duration=pi_s)]
 
 
-def _flush_states(pkts, pi_s, gaps, jitter, degrees: bool) -> None:
+def _flush_states(pkts, pi_s, gaps, jitter, degrees: bool, twin=None) -> None:
     """One block of packets -> one send_columns per entity. Paths and series
     order match viz.log_state exactly, so the static styles line up."""
     if not pkts:
@@ -126,6 +126,9 @@ def _flush_states(pkts, pi_s, gaps, jitter, degrees: bool) -> None:
         translation=np.column_stack([fp[:, 0], fp[:, 1], z]),
         quaternion=q[:, [1, 2, 3, 0]]))
 
+    if twin is not None:
+        twin.flush(pkts, pi_s, viz.TIMELINE)
+
     fz = col("foot_z")
     pts, lengths = [], []
     for i in range(len(pkts)):
@@ -150,7 +153,8 @@ def _flush_commands(cmds) -> None:
 
 
 def convert(path: str, out: str = "", mode: str = "save", decimate: int = 1,
-            degrees: bool = False, host: str = "", port: int = viz.VIEWER_PORT) -> dict:
+            degrees: bool = False, host: str = "", port: int = viz.VIEWER_PORT,
+            twin_3d: bool = True) -> dict:
     header, records = read_records(path)
     if header.get("proto_version") not in (None, 0, P.PROTO_VERSION):
         print(f"warning: recorded at protocol v{header['proto_version']}, this parser is "
@@ -162,6 +166,16 @@ def convert(path: str, out: str = "", mode: str = "save", decimate: int = 1,
     rr.log("link/arrival_jitter_ms", rr.SeriesLines(names=["jitter"]), static=True)
     rr.log("link/seq_gap", rr.SeriesLines(names=["lost"]), static=True)
     rr.log("policy/enable", rr.SeriesLines(names=["enable"]), static=True)
+
+    # The CAD robot twice: commanded and real (twin.py). Off with --no-3d.
+    twin = None
+    if twin_3d:
+        try:
+            from .twin import Twin
+            twin = Twin()
+            twin.log_static()
+        except (OSError, ValueError) as exc:
+            print(f"3D twin skipped: {exc}", file=sys.stderr)
 
     t0 = int(header.get("start_mono_ns", 0)) or None
     buf = bytearray()
@@ -217,7 +231,7 @@ def convert(path: str, out: str = "", mode: str = "save", decimate: int = 1,
                 gaps.append(gap)
                 jitter.append(offset - best_offset)
                 if len(pkts) >= BLOCK:
-                    _flush_states(pkts, pi_s, gaps, jitter, degrees)
+                    _flush_states(pkts, pi_s, gaps, jitter, degrees, twin)
                     stats["logged"] += len(pkts)
                     pkts, pi_s, gaps, jitter = [], [], [], []
 
@@ -238,7 +252,7 @@ def convert(path: str, out: str = "", mode: str = "save", decimate: int = 1,
                 stats["gains"] += 1
                 event(f"gains message sent, seq {m[1]}", t_ns)
 
-    _flush_states(pkts, pi_s, gaps, jitter, degrees)
+    _flush_states(pkts, pi_s, gaps, jitter, degrees, twin)
     stats["logged"] += len(pkts)
     _flush_commands(cmds)
     rr.disconnect()
@@ -262,12 +276,15 @@ def main(argv=None) -> int:
                     help="log every Nth packet (default 1: all of them). The packet "
                          "after a gap is always logged.")
     ap.add_argument("--degrees", action="store_true")
+    ap.add_argument("--no-3d", action="store_true",
+                    help="skip the commanded-vs-real CAD robots (smaller, faster)")
     a = ap.parse_args(argv)
 
     mode = "spawn" if a.spawn else "connect" if a.connect else "save"
     try:
         s = convert(a.flight_log, out=a.out, mode=mode, decimate=max(1, a.decimate),
-                    degrees=a.degrees, host=a.connect or "")
+                    degrees=a.degrees, host=a.connect or "",
+                    twin_3d=not a.no_3d)
     except (OSError, ValueError) as exc:
         print(exc, file=sys.stderr)
         return 1

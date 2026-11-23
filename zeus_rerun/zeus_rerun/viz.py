@@ -95,8 +95,21 @@ def blueprint() -> "rrb.Blueprint":
         rrb.TimeSeriesView(origin="status", name="status"),
         name="Policy, drives & health",
     )
+    sim_vs_real = rrb.Vertical(
+        rrb.Horizontal(
+            rrb.Spatial3DView(origin="twin/commanded", name="COMMANDED: gait + residual"),
+            rrb.Spatial3DView(origin="twin/real", name="REAL: measured"),
+        ),
+        rrb.Horizontal(
+            rrb.TimeSeriesView(origin="tracking", name="commanded - actual"),
+            rrb.TimeSeriesView(origin="contacts", name="foot switches"),
+            rrb.TimeSeriesView(origin="estimator", name="estimator"),
+        ),
+        row_shares=[3, 1],
+        name="Sim vs real",
+    )
     return rrb.Blueprint(
-        rrb.Tabs(joints, estimator, drives, rrb.Spatial3DView(origin="world", name="3D")),
+        rrb.Tabs(sim_vs_real, joints, estimator, drives, rrb.Spatial3DView(origin="world", name="3D")),
         collapse_panels=True,
     )
 
