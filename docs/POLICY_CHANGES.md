@@ -129,6 +129,8 @@ PD the policy acts through. These are the ones that matter for sim-to-real.
 | 7 | **Measured gearbox friction:** hip pitch needs more than 12 Nm to move; the training model has 0.05 Nm on every joint | the hips sit 4–7° short of a target until friction breaks. **Not compensated**: a real sim-to-real gap | observed 2026-11-23 |
 | 8 | **The hold has no torque feedforward** | once the feet carry weight, the start pose will sag before release | `soft_start.c` |
 | 9 | **Protocol v12** | same bytes as v9; the 44-float policy block is unchanged | `link_proto.h` |
+| 10 | **Ankle drive `vel_limit` 10 → 40 turn/s** (saved on both ankle drives 2026-11-24) | on the first walk the drive's velocity clamp cut the ankle PD: the left ankle sat 25–31° off its target. The trained ankle PD has no velocity limit, so this moves the real ankle closer to training. Hips and knees stay at 10 | ODrive config, written by `test_can_cfg.c` `CANCFG_FIX_ANKLE_VEL` |
+| 11 | **Contact = foot switch only.** A pressed switch means that foot is in contact; there is no spring- or force-based contact detection | `fused_valid` (and so arm/release) needs at least one switch pressed. A foot resting on its toe or heel reads open, because the switch is at the centre of the sole | `contact.c`, `fusion.c` |
 
 ---
 
