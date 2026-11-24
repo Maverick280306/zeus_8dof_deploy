@@ -58,7 +58,7 @@ import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from zeus_link.convert import RESIDUAL_LIMIT_RAD
-from zeus_link.precheck import return_refusal
+from zeus_link.precheck import JamWatch, return_refusal
 from zeus_link.nexus_proto import (HEALTH_NAMES, JOINT_NAMES, NUM_JOINTS, SAFETY_ARMED,
                                    SAFETY_IDLE, STREAM_ARM_BLOCKED, STREAM_HOLD,
                                    STREAM_RAMP, STREAM_RETURN)
@@ -126,6 +126,7 @@ class RLPolicyNode(Node):
         self.create_service(Trigger, 'zeus/commander/stop', self.on_stop)
         self.create_service(Trigger, 'zeus/commander/return', self.on_return)
         self.returning = False      # BACK TO STANDING asked for, until the next START/stop
+        self.jam = JamWatch(JOINT_NAMES)
         self.create_timer(1.0 / RATE_HZ, self.step)
         self.create_timer(0.1, self.publish_status)
 
@@ -250,6 +251,16 @@ class RLPolicyNode(Node):
         s = self.state
         age = (now - self.state_time) if s is not None else float("inf")
         fresh = age < STALE_SEC
+
+        # A joint far from its command and not moving is jammed, not slow:
+        # stop before it is pushed any harder (precheck.JamWatch).
+        if fresh and (self.engaged or self.staged) and s.safety_state == SAFETY_ARMED:
+            why = self.jam.update(s.act_target, s.joint_pos, s.joint_vel, now)
+            if why:
+                self.get_logger().error("STOP: " + why)
+                self.halt(why)
+        else:
+            self.jam.reset()
 
         self.blockers = []
         if not self.handshake_done:

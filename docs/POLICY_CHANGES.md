@@ -89,6 +89,7 @@ itself.
 | State older than 20 ms | disengage | **repeat the last command** | a 20 ms DDS gap under load dropped the robot out of its ramp; the board's own link watchdog is 200 ms |
 | State older than 100 ms | (n/a) | **halt, and stay halted** until START | a tenth of a second blind is not a hiccup |
 | After a fall | latched until the **node restarts** | latched until **STOP**, then START | an operator acknowledges it from the GUI |
+| A joint jams | (n/a) | **halt**: any hip or knee >20° from its command and moving <5°/s for 0.3 s (ankles excluded) | 2026-11-24: the right knee jammed mid-stride and every later run pushed 36–75 Nm into it. Worst normal error on the first walk was 18°, and only while moving. `zeus_link.precheck.JamWatch` |
 | Any stop | `disengage()` | `halt()`: enable stays **off**, nothing re-arms on its own | the node used to re-arm itself after a stop |
 | Shutdown | publish enable false | same, tolerating a dead ROS context on Ctrl-C | an exception on exit hid whether the stand-down went out |
 
