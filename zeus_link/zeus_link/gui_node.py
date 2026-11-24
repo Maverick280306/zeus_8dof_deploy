@@ -260,7 +260,16 @@ class GuiNode(Node):
         return ok, msg
 
     def do_return(self) -> tuple:
+        # From anywhere, including after a STOP - which also stood the link
+        # node down. Like START, lift that first, or the enable the commander
+        # sends never reaches the board. The dead-man then watches this run.
+        ok, msg = self.call("resume")
+        if not ok:
+            return False, f"resume refused: {msg}"
         ok, msg = self.call("cmd_return")
+        if ok:
+            self.last_hb = time.monotonic()
+            self.armed_by_gui = True
         self.event("BACK TO STANDING" if ok else f"BACK TO STANDING refused: {msg}")
         return ok, msg
 
@@ -531,7 +540,7 @@ th:first-child,td:first-child{text-align:left}th{color:var(--dim);font-weight:50
     <button id="zero">ZERO ANKLES</button>
     <button id="start">START</button>
     <button id="walk">WALK</button>
-    <button id="back" title="from the start pose: ramp every joint to zero, then STOP">BACK TO STANDING</button>
+    <button id="back" title="from anywhere - walking, holding, stopped, fallen: ramp every joint to zero over 3 s, then STOP">BACK TO STANDING</button>
     <button id="stop" title="space bar">STOP</button>
   </div>
   <div class="mode" id="mode">—</div>
@@ -610,7 +619,7 @@ function render(){
   $("zero").disabled = !L.connected || armed;
   $("start").disabled = !L.connected || !C || C.enabled || mode === "fallen";
   $("walk").disabled = !C || !C.can_walk || mode !== "ready";
-  $("back").disabled = !C || !["ramping","holding","ready"].includes(mode);
+  $("back").disabled = !C || ["handshake","no_state","returning","home"].includes(mode);
 
   $("checks").innerHTML = (S.checks||[]).map(c => `<li class="${c.level}">${esc(c.text)}</li>`).join("");
 

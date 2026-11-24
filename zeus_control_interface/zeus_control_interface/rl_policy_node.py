@@ -190,8 +190,21 @@ class RLPolicyNode(Node):
                                  None if s is None else s.safety_state,
                                  0 if s is None else s.stream_flags)
         if ok:
+            # From anywhere (2026-11-24): walking, holding, stopped, even
+            # latched after a fall - pressing this IS the operator's
+            # acknowledgement. The way back goes through stage(), which sends
+            # enable + hold + return; out of idle the board arms straight into
+            # it, out of the gait it starts from the measured pose.
+            if self.fall is not None:
+                self.get_logger().warn(f"BACK TO STANDING clears the fall latch ({self.fall})")
+                self.fall = None
+            if self.engaged:
+                self.disengage()
+                self.staged = True
+            self.enable = True
             self.returning = True
             self.release = False
+            self.stop_reason = None
             self.get_logger().warn("BACK TO STANDING: ramping every joint to zero")
         resp.success, resp.message = ok, msg
         return resp
@@ -271,6 +284,12 @@ class RLPolicyNode(Node):
             if self.engaged or self.staged:
                 self.disengage()
             self.mode = "watching"
+        elif not self.engaged and not self.staged and self.returning:
+            # Going home needs none of the arm guards - not the estimator, not
+            # the feet, not an upright torso: that is what it is for.
+            self.staged = True
+            self.mode = "returning"
+            self.stage(s, cmd)
         elif not self.engaged and not self.staged:
             why = self.gate.arm_blockers(s, health_names)
             if why:
@@ -296,7 +315,7 @@ class RLPolicyNode(Node):
         """Armed into the hold: keep it there, and release when allowed."""
         q = np.asarray(s.quat, dtype=np.float64)
         q = q / max(float(np.linalg.norm(q)), 1e-6)
-        if s.health or tilt_of(q) > self.policy.tilt_stop:
+        if not self.returning and (s.health or tilt_of(q) > self.policy.tilt_stop):
             # Something went wrong while the robot was being moved to the pose.
             # Stand down, and STAY down: START has to be pressed again.
             reason = ("health faults during the soft start: " + ", ".join(health_names(s.health))

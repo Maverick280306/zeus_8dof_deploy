@@ -76,7 +76,7 @@ armed, holding the start pose, not walking.
 | `zeus/commander/start` | arm into the hold (not walking) |
 | `zeus/commander/walk` | release into the gait; accepted only in mode `ready` |
 | `zeus/commander/stop` | enable off. Also the acknowledgement that clears a fall latch |
-| `zeus/commander/return` | from the ramp or hold: ramp every joint back to 0 and hold |
+| `zeus/commander/return` | from **anywhere** (since 2026-11-24: walking, holding, stopped, after a fall): ramp every joint back to 0 over 3 s and hold. Out of the gait it starts from the measured pose; it clears a fall latch |
 
 Plus `zeus/commander_status`: JSON at 10 Hz with mode, blockers, stop reason
 and residual peak. The browser GUI uses these; it never publishes commands
@@ -120,7 +120,7 @@ PD the policy acts through. These are the ones that matter for sim-to-real.
 
 | # | change | effect on the policy | where |
 |---|---|---|---|
-| 1 | **Board holds at phase 0.95**, not 0.0 | the policy starts at 0.95. That's inside its start window; `sim_check` walks 20 s from rest there (tilt p95 5.2°, against 4.7° at phase 0) | `stm32_zeuss` `soft_start.h` |
+| 1 | **Board holds at phase 0.15** (since 2026-11-24; 0.95 before, 0.0 originally) | the policy starts at 0.15, inside its start window. By the URDF's kinematics both feet are flat and side by side there (85 mm apart front to back, against 276 mm at 0.95, where the robot settled onto its rear foot and the estimator kept dropping out). `sim_check` walks 20 s from rest at 0.15 (tilt p95 4.9°) | `stm32_zeuss` `soft_start.h` |
 | 2 | **Right-leg spring encoder signs flipped to −1** (measured 2026-11-23) | `spring_angle` for the right hip and knee had the wrong sign until now | `robot_config.c` `g_spring_enc` |
 | 3 | **Estimator fixed**: double precision, garbled-IMU-sample rejection, contact updates on every drive frame | `quat`, `vel_hdg`, `pelvis_z` were drifting to metres per second while standing; now about 0.006 m/s rms | `fusion.c`, `inekf.c`, `lie_group.h` |
 | 4 | **Estimator signed off 2026-11-23** (`ROBOT_CONFIG_CALIBRATED 1`) | `fused_valid` now reaches OK once converged, so `arm_blockers` can pass; before this, the policy could never arm | `robot_config.h` |

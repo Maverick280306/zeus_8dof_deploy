@@ -181,7 +181,11 @@ try:
     time.sleep(0.5)
     hb = Heartbeat(PORT)
     code, r = http(PORT, "POST", "/api/return")
-    check(not r["success"], f"refused while not armed: {r.get('message')}")
+    check(r["success"], f"accepted while stopped: {r.get('message')}")
+    ok, s = wait_for(PORT, lambda s: (s.get("board") or {}).get("soft") == "HOME", 6)
+    check(ok and safety(s) == "ARMED", f"armed straight into the way back, home ({mode(s)})")
+    http(PORT, "POST", "/api/stop")
+    wait_for(PORT, lambda s: safety(s) != "ARMED", 2)
     http(PORT, "POST", "/api/start")
     ok, s = wait_for(PORT, lambda s: mode(s) == "ready", 8)
     check(ok, f"at the start pose again ({mode(s)})")
@@ -202,7 +206,7 @@ try:
     check(ok, "STOP idled it")
     hb.on = False
 
-    print("BACK TO STANDING refused while walking:", flush=True)
+    print("BACK TO STANDING while walking:", flush=True)
     time.sleep(0.5)
     hb = Heartbeat(PORT)
     http(PORT, "POST", "/api/start")
@@ -210,8 +214,10 @@ try:
     http(PORT, "POST", "/api/walk")
     ok, s = wait_for(PORT, lambda s: mode(s) == "walking", 3)
     code, r = http(PORT, "POST", "/api/return")
-    check(ok and not r["success"] and "STOP" in r.get("message", ""),
-          f"refused mid-stride: {r.get('message')}")
+    check(ok and r["success"], f"accepted mid-stride: {r.get('message')}")
+    ok, s = wait_for(PORT, lambda s: (s.get("board") or {}).get("soft") == "HOME"
+                     and mode(s) == "home", 6)
+    check(ok and safety(s) == "ARMED", f"walked back to the standing pose ({mode(s)})")
     http(PORT, "POST", "/api/stop")
     wait_for(PORT, lambda s: safety(s) != "ARMED", 2)
     hb.on = False

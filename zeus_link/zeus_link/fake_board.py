@@ -49,7 +49,7 @@ RESIDUAL_LIMIT_TURNS = 0.1
 LINK_TIMEOUT_S = 0.2
 MAX_REJECTS = 10
 SOFT_RAMP_S = 3.0      # soft_start.h SOFT_START_RAMP_S
-SOFT_START_PHASE = 0.95  # soft_start.h: double support, both feet down
+SOFT_START_PHASE = 0.15  # soft_start.h: feet side by side, both flat (was 0.95)
 
 
 class FakeBoard:
@@ -160,8 +160,10 @@ class FakeBoard:
         self.soft_hold = hold
         if self.soft == "hold" and not hold:
             self.soft = "run"
-        held = self.soft == "hold" or (self.soft == "ramp" and self.soft_ramp_held)
-        if flags & P.CMD_RETURN and held and self.safety == P.SAFETY_ARMED:
+        # soft_start_return_flag: from any armed mode but the way back itself
+        # (2026-11-24). Out of idle the arm above has just set "ramp", so an
+        # enable + RETURN from idle arms straight into the return.
+        if flags & P.CMD_RETURN and self.soft in ("ramp", "hold", "run"):
             self.soft, self.soft_t0 = "return", time.monotonic()
             self.return_from = list(getattr(self, "_last_pos", self.ramp_from))
         self._set(P.SAFETY_ARMED, "enable true" + (", HOLD" if hold else ""))

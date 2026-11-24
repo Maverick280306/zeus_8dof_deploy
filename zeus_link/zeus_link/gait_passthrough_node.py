@@ -172,7 +172,11 @@ class GaitPassthroughNode(Node):
     def _on_return(self, _req, resp):
         resp.success, resp.message = return_refusal(self._enable, self._safety, self._flags)
         if resp.success:
+            # From anywhere: out of idle this arms, and the board's arm ramp
+            # turns into the way back on the same command.
             self._cmd.return_home = True
+            self._enable = True
+            self._stop_reason = None
             self.get_logger().warn("BACK TO STANDING: ramping every joint to zero")
         return resp
 
