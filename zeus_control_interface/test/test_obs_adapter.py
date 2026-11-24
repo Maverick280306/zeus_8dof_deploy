@@ -263,3 +263,18 @@ def test_fall_conditions_are_the_training_ones(policy):
     assert "tilt" in g.fallen(state(policy, quat=q), a)
     low = 0.39 + policy.imu_in_base[2]
     assert "height" in g.fallen(state(policy, pelvis_z=low), a)
+
+
+def test_an_ankle_pushed_by_the_floor_still_releases(policy):
+    # 2026-11-24: holding the start pose, the robot's weight pushed the right
+    # ankle 8.4 deg off its reference. The trained ankle gains are soft and the
+    # floor sets the ankle, so 5 deg could never pass; ankles get 10.
+    g = Guards(policy)
+    g.phase_rate = 1.0 / policy.gait.period
+    q = list(policy.gait.ref(0.1))
+    q[P.JOINT_INDEX["right_ankle_pitch"]] += math.radians(8.4)
+    why = g.release_blockers(state(policy, joint_pos=q))
+    assert not any("reference pose" in w for w in why)
+    q[P.JOINT_INDEX["right_ankle_pitch"]] += math.radians(3.0)        # 11.4: too far
+    why = g.release_blockers(state(policy, joint_pos=q))
+    assert any("right_ankle_pitch" in w and "reference pose" in w for w in why)

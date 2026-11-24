@@ -53,8 +53,13 @@ Nothing else in this file changed.
   outside the window `(0.95, 0.30)`. WALK would have been refused at exactly the
   phase the board holds. The window itself is unchanged. (`15d3b07`)
 
-Thresholds unchanged: `POSE_TOL_RAD` (5°), `START_WINDOW`, the tilt and height
-limits.
+- **Ankles get a 10° pose tolerance for release** (`ANKLE_POSE_TOL_RAD`, 2026-11-24);
+  every other joint keeps 5°. The trained ankle gains are soft and the floor sets
+  the ankle: holding the start pose, body weight pushed the right ankle 8.4° off,
+  and WALK could never be released.
+
+Thresholds otherwise unchanged: `POSE_TOL_RAD` (5°), `START_WINDOW`, the tilt and
+height limits.
 
 ### `rl_policy_node.py`
 
@@ -121,7 +126,7 @@ PD the policy acts through. These are the ones that matter for sim-to-real.
 
 | # | change | effect on the policy | where |
 |---|---|---|---|
-| 1 | **Board holds at phase 0.15** (since 2026-11-24; 0.95 before, 0.0 originally) | the policy starts at 0.15, inside its start window. By the URDF's kinematics both feet are flat and side by side there (85 mm apart front to back, against 276 mm at 0.95, where the robot settled onto its rear foot and the estimator kept dropping out). `sim_check` walks 20 s from rest at 0.15 (tilt p95 4.9°) | `stm32_zeuss` `soft_start.h` |
+| 1 | **Board holds at phase 0.10** (since 2026-11-24 evening; 0.15 and 0.95 before, 0.0 originally) | the policy starts at 0.10, inside its start window. Rear foot 192 mm behind as a kickstand; a 3° lean back puts both soles down. At 0.15 (feet side by side) the robot rolled back 12–19° onto its heels in every hold; at 0.95 the front foot lifted. `sim_check` walks 20 s from rest at 0.10 (tilt p95 5.0°) | `stm32_zeuss` `soft_start.h` |
 | 2 | **Right-leg spring encoder signs flipped to −1** (measured 2026-11-23) | `spring_angle` for the right hip and knee had the wrong sign until now | `robot_config.c` `g_spring_enc` |
 | 3 | **Estimator fixed**: double precision, garbled-IMU-sample rejection, contact updates on every drive frame | `quat`, `vel_hdg`, `pelvis_z` were drifting to metres per second while standing; now about 0.006 m/s rms | `fusion.c`, `inekf.c`, `lie_group.h` |
 | 4 | **Estimator signed off 2026-11-23** (`ROBOT_CONFIG_CALIBRATED 1`) | `fused_valid` now reaches OK once converged, so `arm_blockers` can pass; before this, the policy could never arm | `robot_config.h` |
@@ -129,6 +134,7 @@ PD the policy acts through. These are the ones that matter for sim-to-real.
 | 6 | **Drive gains = the trained PD**, no integrator: hip/knee KP 150 KD 12, hip roll KP 60 KD 4, ankle KP 30 KD 1.2 | matches training | `robot_config.c` `g_drive_gains` |
 | 7 | **Measured gearbox friction:** hip pitch needs more than 12 Nm to move; the training model has 0.05 Nm on every joint | on the first walk the hips stalled 7–10° short of every peak. **Partly compensated since 2026-11-24**: see row 12 | observed 2026-11-23 |
 | 8 | **The hold carries the gait's own torque at phase 0.95** (since 2026-11-24; before, it carried none) | the start pose no longer sags under the robot's weight, and release no longer steps the torque from 0 to the gait's value. The first ground walk started 6° back and 5° right, on one foot | `soft_start.c`, `app.c` |
+| 13 | **IMU level correction: the board is rolled 8.81° on the torso** (measured 2026-11-24: gravity read 8.7–9.0° of roll on six occasions at the zero pose, both feet down, robot confirmed straight) | `quat`, `gyro` and the estimator now read 0° roll on a straight robot. Before, the policy would have seen a constant 9° sideways tilt (sim tolerance: ±3° of IMU mount error) and the tilt guard started every run 9° into its 20° | `robot_config.c` `g_imu_mount_R`, `g_imu_mount_q` |
 | 9 | **Protocol v12** | same bytes as v9; the 44-float policy block is unchanged | `link_proto.h` |
 | 10 | **Ankle drive `vel_limit` 10 → 40 turn/s** (saved on both ankle drives 2026-11-24) | on the first walk the drive's velocity clamp cut the ankle PD: the left ankle sat 25–31° off its target. The trained ankle PD has no velocity limit, so this moves the real ankle closer to training. Hips and knees stay at 10 | ODrive config, written by `test_can_cfg.c` `CANCFG_FIX_ANKLE_VEL` |
 | 12 | **Friction feed-forward on hip pitch 9 Nm, knee 4 Nm, hip roll 1.5 Nm** (output side, in the direction of the commanded velocity, smooth sign with v0 = 0.01 turn/s) | cancels about 60% of the gearbox friction measured on the first walk (hip pitch 15.5 Nm, against 0.05 Nm in training), so the joints act closer to the model the policy trained in. KP/KD unchanged | `robot_config.c` `g_friction_ff_nm`, `app.c` |

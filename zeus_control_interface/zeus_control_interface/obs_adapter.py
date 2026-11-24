@@ -199,6 +199,11 @@ class Guards:
     # Arming sends ref + residual straight to the drives. A leg far from the
     # reference gets there as fast as the gains can take it.
     POSE_TOL_RAD = math.radians(5.0)
+    # Ankles get 10 (2026-11-24). Their trained gains are soft (KP 30) and the
+    # floor sets them: holding the start pose, the robot's weight pushed the
+    # right ankle 8.4 deg off and WALK could never be released; turning it by
+    # hand only tilted the robot about its feet into the tilt stop.
+    ANKLE_POSE_TOL_RAD = math.radians(10.0)
     PHASE_MEASURE_TICKS = 500    # 1 kHz ticks to measure it over
 
     def __init__(self, policy: Policy) -> None:
@@ -244,8 +249,10 @@ class Guards:
 
         off = np.abs(np.asarray(state.joint_pos, dtype=np.float64)
                      - np.asarray(state.ref_angle, dtype=np.float64))
-        if not np.isfinite(off).all() or off.max() > self.POSE_TOL_RAD:
-            j = int(np.nanargmax(off)) if np.isfinite(off).any() else 0
+        tol = np.array([self.ANKLE_POSE_TOL_RAD if "ankle" in n else self.POSE_TOL_RAD
+                        for n in self.p.joint_names])
+        if not np.isfinite(off).all() or (off > tol).any():
+            j = int(np.nanargmax(off / tol)) if np.isfinite(off).any() else 0
             why.append(f"robot is not at the reference pose: {self.p.joint_names[j]} off by "
                        f"{math.degrees(float(off[j])):.1f} deg")
         return why
