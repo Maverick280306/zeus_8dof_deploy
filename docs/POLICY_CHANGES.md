@@ -126,7 +126,7 @@ PD the policy acts through. These are the ones that matter for sim-to-real.
 
 | # | change | effect on the policy | where |
 |---|---|---|---|
-| 1 | **Board holds at phase 0.10** (since 2026-11-24 evening; 0.15 and 0.95 before, 0.0 originally) | the policy starts at 0.10, inside its start window. Rear foot 192 mm behind as a kickstand; a 3° lean back puts both soles down. At 0.15 (feet side by side) the robot rolled back 12–19° onto its heels in every hold; at 0.95 the front foot lifted. `sim_check` walks 20 s from rest at 0.10 (tilt p95 5.0°) | `stm32_zeuss` `soft_start.h` |
+| 1 | **Board holds at phase 0.95** (0.0 originally; 0.15 and 0.10 tried on 2026-11-24 and reverted the same evening) | the policy starts at 0.95, inside its start window. The ramp to the start pose happens under load, and the soft trained ankles cannot push the body forward: the more ankle bend a pose asks for, the further the robot sits back (0.95: −8/−6° ankles, ~6° back; 0.15: 12–19° back; 0.10: toppled). `sim_check` walks 20 s from rest at 0.95 (tilt p95 5.2°) | `stm32_zeuss` `soft_start.h` |
 | 2 | **Right-leg spring encoder signs flipped to −1** (measured 2026-11-23) | `spring_angle` for the right hip and knee had the wrong sign until now | `robot_config.c` `g_spring_enc` |
 | 3 | **Estimator fixed**: double precision, garbled-IMU-sample rejection, contact updates on every drive frame | `quat`, `vel_hdg`, `pelvis_z` were drifting to metres per second while standing; now about 0.006 m/s rms | `fusion.c`, `inekf.c`, `lie_group.h` |
 | 4 | **Estimator signed off 2026-11-23** (`ROBOT_CONFIG_CALIBRATED 1`) | `fused_valid` now reaches OK once converged, so `arm_blockers` can pass; before this, the policy could never arm | `robot_config.h` |

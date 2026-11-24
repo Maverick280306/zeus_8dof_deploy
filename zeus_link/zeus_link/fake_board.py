@@ -49,7 +49,7 @@ RESIDUAL_LIMIT_TURNS = 0.1
 LINK_TIMEOUT_S = 0.2
 MAX_REJECTS = 10
 SOFT_RAMP_S = 3.0      # soft_start.h SOFT_START_RAMP_S
-SOFT_START_PHASE = 0.10  # soft_start.h: rear foot 192 mm back as a kickstand (was 0.15, 0.95)
+SOFT_START_PHASE = 0.95  # soft_start.h: least ankle bend; the only start the robot has walked from
 
 
 class FakeBoard:
