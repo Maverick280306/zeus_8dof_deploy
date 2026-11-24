@@ -247,6 +247,17 @@ class Guards:
         if hi + self.PHASE_EPS < phase < lo - self.PHASE_EPS:
             why.append(f"phase {float(state.phase):.2f} is outside the start window")
 
+        # Both feet down (2026-11-25). The gait's first move out of the start
+        # phase lifts the LEFT foot; released standing on the left foot alone
+        # (right switch open the whole hold), the robot had nothing under it
+        # and rolled from 8 to 16 deg in 0.9 s. The estimator is OK on one
+        # foot, so its check alone let that release through.
+        c = np.asarray(state.contact, dtype=np.float64)
+        if not (c.shape[0] >= 2 and (c[:2] > 0.5).all()):
+            down = [n for n, v in zip(("left", "right"), c[:2]) if v > 0.5]
+            why.append("both feet must be down to walk (pressed: "
+                       + (", ".join(down) if down else "none") + ")")
+
         off = np.abs(np.asarray(state.joint_pos, dtype=np.float64)
                      - np.asarray(state.ref_angle, dtype=np.float64))
         tol = np.array([self.ANKLE_POSE_TOL_RAD if "ankle" in n else self.POSE_TOL_RAD

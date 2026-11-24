@@ -148,7 +148,8 @@ def test_filter_has_the_training_time_constant(policy):
 def test_guards_pass_a_board_playing_the_training_gait(policy):
     g = Guards(policy)
     g.phase_rate = 1.0 / policy.gait.period
-    assert g.engage_blockers(state(policy), P.HEALTH_NAMES.get) == []
+    # Both feet down: released on one, the gait lifts it (2026-11-25).
+    assert g.engage_blockers(state(policy, contact=[1.0, 1.0]), P.HEALTH_NAMES.get) == []
 
 
 @pytest.mark.parametrize("over,word", [
@@ -234,7 +235,7 @@ def test_a_standing_robot_may_arm_but_not_release(policy):
     assert any("reference pose" in w for w in why)
 
     arrived = state(policy, joint_pos=list(policy.gait.ref(0.0)), phase=0.0,
-                    ref_angle=list(policy.gait.ref(0.0)))
+                    ref_angle=list(policy.gait.ref(0.0)), contact=[1.0, 1.0])
     assert g.release_blockers(arrived) == []
 
 
@@ -278,3 +279,14 @@ def test_an_ankle_pushed_by_the_floor_still_releases(policy):
     q[P.JOINT_INDEX["right_ankle_pitch"]] += math.radians(3.0)        # 11.4: too far
     why = g.release_blockers(state(policy, joint_pos=q))
     assert any("right_ankle_pitch" in w and "reference pose" in w for w in why)
+
+
+@pytest.mark.parametrize("contact,ok", [([1.0, 1.0], True), ([1.0, 0.0], False),
+                                        ([0.0, 1.0], False), ([0.0, 0.0], False)])
+def test_walk_is_released_only_on_both_feet(policy, contact, ok):
+    # 2026-11-25: released on the left foot alone, and the gait's first move
+    # lifts the left foot - the robot rolled 8 -> 16 deg in 0.9 s.
+    g = Guards(policy)
+    g.phase_rate = 1.0 / policy.gait.period
+    why = g.release_blockers(state(policy, contact=contact))
+    assert (not any("both feet" in w for w in why)) == ok

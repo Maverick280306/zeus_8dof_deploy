@@ -53,6 +53,10 @@ Nothing else in this file changed.
   outside the window `(0.95, 0.30)`. WALK would have been refused at exactly the
   phase the board holds. The window itself is unchanged. (`15d3b07`)
 
+- **Both feet must be down to release** (2026-11-25). The gait's first move out of
+  phase 0.95 lifts the left foot; a release on the left foot alone (the right
+  switch open all hold) left nothing under the robot, and it rolled 8→16° in 0.9 s.
+  The estimator check alone allowed it, since one foot is enough for OK.
 - **Ankles get a 10° pose tolerance for release** (`ANKLE_POSE_TOL_RAD`, 2026-11-24);
   every other joint keeps 5°. The trained ankle gains are soft and the floor sets
   the ankle: holding the start pose, body weight pushed the right ankle 8.4° off,
@@ -135,6 +139,7 @@ PD the policy acts through. These are the ones that matter for sim-to-real.
 | 7 | **Measured gearbox friction:** hip pitch needs more than 12 Nm to move; the training model has 0.05 Nm on every joint | on the first walk the hips stalled 7–10° short of every peak. **Partly compensated since 2026-11-24**: see row 12 | observed 2026-11-23 |
 | 8 | **The hold has no torque feed-forward** (as on the first walk). Tried on 2026-11-24 (the gait's torque at the start phase) and switched off the same day: those are mid-stride torques for a particular stance foot, and at phase 0.10 the −13.2 Nm right hip roll shoved the unloaded right leg 9° off its target, so WALK could never release | the start pose sags under weight until release; the gait's torque arrives with the gait | `soft_start.h` `SOFT_HOLD_TAU_SCALE` 0 |
 | 13 | **IMU level correction: the board is rolled 8.81° on the torso** (measured 2026-11-24: gravity read 8.7–9.0° of roll on six occasions at the zero pose, both feet down, robot confirmed straight) | `quat`, `gyro` and the estimator now read 0° roll on a straight robot. Before, the policy would have seen a constant 9° sideways tilt (sim tolerance: ±3° of IMU mount error) and the tilt guard started every run 9° into its 20° | `robot_config.c` `g_imu_mount_R`, `g_imu_mount_q` |
+| 14 | **Drive position glitch rejection** (2026-11-25): a position frame further from the last good one than its own velocity allows (+2°) is dropped and the last good value kept; 5 in a row are believed | after a rewiring the left knee's encoder read single-frame spikes of −29…+66° (10,000 in ten minutes) while the frame's velocity stayed smooth; the policy was seeing them at 50 Hz | `act_odrive.c` `pos_believable` |
 | 9 | **Protocol v12** | same bytes as v9; the 44-float policy block is unchanged | `link_proto.h` |
 | 10 | **Ankle drive `vel_limit` 10 → 40 turn/s** (saved on both ankle drives 2026-11-24) | on the first walk the drive's velocity clamp cut the ankle PD: the left ankle sat 25–31° off its target. The trained ankle PD has no velocity limit, so this moves the real ankle closer to training. Hips and knees stay at 10 | ODrive config, written by `test_can_cfg.c` `CANCFG_FIX_ANKLE_VEL` |
 | 12 | **Friction feed-forward on hip pitch 9 Nm, knee 4 Nm, hip roll 1.5 Nm** (output side, in the direction of the commanded velocity, smooth sign with v0 = 0.01 turn/s) | cancels about 60% of the gearbox friction measured on the first walk (hip pitch 15.5 Nm, against 0.05 Nm in training), so the joints act closer to the model the policy trained in. KP/KD unchanged | `robot_config.c` `g_friction_ff_nm`, `app.c` |
