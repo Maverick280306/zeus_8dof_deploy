@@ -290,3 +290,15 @@ def test_walk_is_released_only_on_both_feet(policy, contact, ok):
     g.phase_rate = 1.0 / policy.gait.period
     why = g.release_blockers(state(policy, contact=contact))
     assert (not any("both feet" in w for w in why)) == ok
+
+
+@pytest.mark.parametrize("lean_deg,ok", [(0.0, True), (2.5, True), (3.5, False), (7.6, False)])
+def test_walk_is_released_only_upright(policy, lean_deg, ok):
+    # 2026-11-25: released leaning 7.6 deg onto one foot, both hips stalled
+    # against the robot's own weight and it rolled over in 1 s.
+    g = Guards(policy)
+    g.phase_rate = 1.0 / policy.gait.period
+    h = math.radians(lean_deg) / 2
+    why = g.release_blockers(state(policy, quat=[math.cos(h), math.sin(h), 0.0, 0.0],
+                                   contact=[1.0, 1.0]))
+    assert (not any("leaning" in w for w in why)) == ok

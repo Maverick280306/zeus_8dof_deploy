@@ -53,6 +53,13 @@ Nothing else in this file changed.
   outside the window `(0.95, 0.30)`. WALK would have been refused at exactly the
   phase the board holds. The window itself is unchanged. (`15d3b07`)
 
+- **Upright to release: tilt under 3°** (`RELEASE_TILT_DEG`, 2026-11-25). Released
+  leaning 7.6° onto the left foot, the gait asked that loaded foot to swing and the
+  other leg to push the body the other way; both hips stalled at the trained PD's
+  60–70 Nm (KP × error, the drives had 178 Nm available) and it rolled over in 1 s.
+  Released at 3°, it walked 3 s. On 2026-11-26 it was released at 5.6° (the leg
+  kinematics put it at 4.3°, so the lean was real, not the IMU) and it spun 128°
+  and fell back in 1.15 s.
 - **Both feet must be down to release** (2026-11-25). The gait's first move out of
   phase 0.95 lifts the left foot; a release on the left foot alone (the right
   switch open all hold) left nothing under the robot, and it rolled 8→16° in 0.9 s.

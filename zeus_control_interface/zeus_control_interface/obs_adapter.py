@@ -204,6 +204,7 @@ class Guards:
     # right ankle 8.4 deg off and WALK could never be released; turning it by
     # hand only tilted the robot about its feet into the tilt stop.
     ANKLE_POSE_TOL_RAD = math.radians(10.0)
+    RELEASE_TILT_DEG = 3.0
     PHASE_MEASURE_TICKS = 500    # 1 kHz ticks to measure it over
 
     def __init__(self, policy: Policy) -> None:
@@ -246,6 +247,20 @@ class Guards:
         phase = float(state.phase) % 1.0
         if hi + self.PHASE_EPS < phase < lo - self.PHASE_EPS:
             why.append(f"phase {float(state.phase):.2f} is outside the start window")
+
+        # Upright (2026-11-25). Released leaning 7.6 deg onto the left foot, the
+        # gait's first move asked that loaded foot to swing and the other leg
+        # to push the body the opposite way: both hips stalled at the trained
+        # PD's 60-70 Nm and the robot rolled over in 1 s. Released at 3 deg, it
+        # walked 3 s. 2026-11-26: released at 5.6 deg (the leg kinematics agree
+        # to 2 deg, so the lean was real) and it spun and fell in 1.15 s.
+        # Below the fall limit is not the same as able to start.
+        q = np.asarray(state.quat, dtype=np.float64)
+        q = q / max(float(np.linalg.norm(q)), 1e-6)
+        lean = math.degrees(tilt_of(q))
+        if lean > self.RELEASE_TILT_DEG:
+            why.append(f"leaning {lean:.1f} deg - straighten the robot to under "
+                       f"{self.RELEASE_TILT_DEG:.0f} deg to walk")
 
         # Both feet down (2026-11-25). The gait's first move out of the start
         # phase lifts the LEFT foot; released standing on the left foot alone
