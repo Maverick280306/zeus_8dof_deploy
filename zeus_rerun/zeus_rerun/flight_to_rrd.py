@@ -114,6 +114,13 @@ def _flush_states(pkts, pi_s, gaps, jitter, degrees: bool, twin=None) -> None:
     _send("status/loop_us_max", idx, col("loop_us_max"))
     _send("status/overruns", idx, col("overruns"))
 
+    # Motor supply (firmware 2026-11-26, the packet's two spare bytes): the
+    # lowest drive bus voltage in 0.25 V steps, and which joint it came from.
+    # 0 / 0xFF = no drive reporting (older firmware, or drives not sending).
+    rv, rj = col("reserved0"), col("reserved1")
+    _send("power/min_bus_voltage", idx, np.where(rv > 0, rv * 0.25, np.nan))
+    _send("power/lowest_joint", idx, np.where(rj < 8, rj, np.nan))
+
     _send("link/seq_gap", idx, np.asarray(gaps, dtype=np.float64))
     _send("link/arrival_jitter_ms", idx, np.asarray(jitter, dtype=np.float64))
 

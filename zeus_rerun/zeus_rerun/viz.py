@@ -93,6 +93,7 @@ def blueprint() -> "rrb.Blueprint":
         rrb.TimeSeriesView(origin="torque", name="torque"),
         rrb.TimeSeriesView(origin="velocity", name="velocity"),
         rrb.TimeSeriesView(origin="status", name="status"),
+        rrb.TimeSeriesView(origin="power", name="motor supply (lowest drive V)"),
         name="Policy, drives & health",
     )
     sim_vs_real = rrb.Vertical(
@@ -223,6 +224,11 @@ def log_state(s, degrees: bool = False) -> None:
     rr.log("status/health_bits", rr.Scalars([float(s.health)]))
     rr.log("status/loop_us_max", rr.Scalars([float(s.loop_us_max)]))
     rr.log("status/overruns", rr.Scalars([float(s.overruns)]))
+    # Motor supply, see flight_to_rrd. A ROS NexusState has no spare bytes.
+    rv = getattr(s, "reserved0", 0)
+    if rv:
+        rr.log("power/min_bus_voltage", rr.Scalars([rv * 0.25]))
+        rr.log("power/lowest_joint", rr.Scalars([float(getattr(s, "reserved1", 0xFF))]))
 
     # ---- 3D: the pelvis pose, and foot HEIGHTS hanging off it ----------------
     # Our quaternion is w,x,y,z; rerun wants x,y,z,w. The packet carries no foot
