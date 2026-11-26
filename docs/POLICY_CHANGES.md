@@ -53,7 +53,7 @@ Nothing else in this file changed.
   outside the window `(0.95, 0.30)`. WALK would have been refused at exactly the
   phase the board holds. The window itself is unchanged. (`15d3b07`)
 
-- **Upright to release: tilt under 3°** (`RELEASE_TILT_DEG`, 2026-11-25). Released
+- **Upright to release: tilt under 3°** (`RELEASE_TILT_DEG`, 2026-11-25). **Temporarily 15° since 2026-11-27** (builder's call): the IMU board is loose and its level moved 3–5° on a still robot, so 3° blocked every release. Back to 3° once the mount is fixed. Released
   leaning 7.6° onto the left foot, the gait asked that loaded foot to swing and the
   other leg to push the body the other way; both hips stalled at the trained PD's
   60–70 Nm (KP × error, the drives had 178 Nm available) and it rolled over in 1 s.

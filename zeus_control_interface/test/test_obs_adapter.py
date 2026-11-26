@@ -292,7 +292,9 @@ def test_walk_is_released_only_on_both_feet(policy, contact, ok):
     assert (not any("both feet" in w for w in why)) == ok
 
 
-@pytest.mark.parametrize("lean_deg,ok", [(0.0, True), (2.5, True), (3.5, False), (7.6, False)])
+# The limit is TEMPORARILY 15 deg (see Guards.RELEASE_TILT_DEG); at 3 these were
+# (0, T), (2.5, T), (3.5, F), (7.6, F).
+@pytest.mark.parametrize("lean_deg,ok", [(0.0, True), (7.6, True), (14.0, True), (16.0, False)])
 def test_walk_is_released_only_upright(policy, lean_deg, ok):
     # 2026-11-25: released leaning 7.6 deg onto one foot, both hips stalled
     # against the robot's own weight and it rolled over in 1 s.

@@ -204,7 +204,11 @@ class Guards:
     # right ankle 8.4 deg off and WALK could never be released; turning it by
     # hand only tilted the robot about its feet into the tilt stop.
     ANKLE_POSE_TOL_RAD = math.radians(10.0)
-    RELEASE_TILT_DEG = 3.0
+    # TEMPORARILY 15 (2026-11-27, builder's call): 3 deg until the IMU board is
+    # fixed. It is loose - its idea of level moved 3-5 deg within minutes on
+    # a still robot - so at 3 WALK could not be released. Put it back to 3.0
+    # once the mount is rigid and re-measured.
+    RELEASE_TILT_DEG = 15.0
     PHASE_MEASURE_TICKS = 500    # 1 kHz ticks to measure it over
 
     def __init__(self, policy: Policy) -> None:
