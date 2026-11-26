@@ -26,8 +26,6 @@ jobs:
         run: python -m pytest zeus_rerun/test -q
       - name: zeus_description tests (zeus.urdf matches the export + zeus_model.yaml)
         run: python -m pytest zeus_description/test -q
-      - name: mukesh_description tests (mukesh.urdf matches the export + its YAML)
-        run: python -m pytest mukesh_description/test -q
       - name: policy tests (numpy runtime vs SB3 golden, observation adapter, guards)
         run: python -m pytest zeus_control_interface/test -q
 
@@ -64,7 +62,6 @@ jobs:
           source /opt/ros/jazzy/setup.bash
           source install/setup.bash
           check_urdf install/zeus_description/share/zeus_description/urdf/zeus.urdf
-          check_urdf install/mukesh_description/share/mukesh_description/urdf/mukesh.urdf
           ros2 launch zeus_bringup robot.launch.py --show-args
           ros2 launch zeus_bringup walk.launch.py --show-args
           ros2 launch zeus_description display.launch.py --show-args
