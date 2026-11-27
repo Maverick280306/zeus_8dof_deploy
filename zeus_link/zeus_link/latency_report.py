@@ -14,10 +14,10 @@ Every figure is in BOARD TICKS (1 ms), the one clock both ends share:
 
 A recording alone (the .flt the link node writes) gives:
 
-    usb in     state packet's arrival on the Pi, above the fastest packet of the
-               run (the cable's own fixed delay is not observable from one
+    usb in     a state packet's arrival on the Pi, above the fastest packet
+               nearby (the cable's own fixed delay is not observable from one
                clock; what varies is)
-    applied    command leaving the Pi -> the board's target carrying it
+    applied    the tick a command arrived on -> the board's target carrying it
     total >=   T minus the newest state the Pi had when the command left - a
                lower bound, because the policy computed from an older one
 
@@ -30,10 +30,22 @@ while walking) names the exact state each action used, and fills in the rest:
     to link    -> the command reached the link node and left for the board
     total      T - S, exactly
 
-Matching uses the hip roll and ankle joints only: they have no spring, so the
-target the board reports minus the gait reference IS the residual - no
-pre-deflection to undo. A command counts only where its residual differs from
-the one before, so a run of identical commands cannot match the wrong one.
+What the real board does that a naive match misses (2026-11-27, the first
+attempt matched nothing on the robot):
+
+  - The two clocks drift - 145 ppm on Zeus, 32 ms over a four-minute run - so
+    board time is pinned to the fastest packet of each second, not of the run.
+  - Drive targets go out every ODRV_CMD_DIVIDER (2) ticks, while ref_angle is
+    the current tick's: on a fast joint target - ref wobbles 0.1 deg tick to
+    tick. The tick the target was computed on is recovered from the data
+    (whichever reading is smoothest).
+  - The ankles carry a small constant offset on top of the residual. A
+    constant per joint is allowed for.
+
+So rather than look for each command exactly, the delay is the lag at which
+the applied residual best follows the commanded one, over windows of the walk
+- one figure per window, which gives the spread as well. Hip roll and ankle
+only: they have no spring, so target - ref is the residual itself.
 
     ros2 run zeus_link latency_report ~/zeus_logs/zeus_20261127_020657.flt
 """
@@ -57,9 +69,11 @@ NON_SEA = (P.JOINT_NAMES.index("left_hip_roll"), P.JOINT_NAMES.index("left_ankle
            P.JOINT_NAMES.index("right_hip_roll"), P.JOINT_NAMES.index("right_ankle_pitch"))
 TICK_NS = 1_000_000
 TWO_PI = 2.0 * np.pi
-MATCH_TOL_RAD = 2e-4        # float32 turns -> rad, and back through the board
-NEW_VALUE_RAD = 1e-3        # a command counts only if it moved this much
-SEARCH_TICKS = 60           # a command not applied within 60 ms is not found
+OFFSET_WINDOW_TICKS = 1000  # drift is under 0.2 ms across one of these
+LAG_WINDOW_TICKS = 200      # one delay estimate per 200 ms of walking
+MIN_MOTION_RAD = 5e-3       # a window whose commands barely move cannot be timed
+MAX_LAG_TICKS = 40
+FIT_RAD = 1.5e-3            # a window fitted worse than this is not believed
 TRAINED_DELAY_MS = 20.0     # zeus_env: lat_steps in {0, 1} at 50 Hz
 
 TIMING_FIELDS = ("state_seq", "state_rx_ns", "act_start_ns", "act_end_ns", "publish_ns")
@@ -99,37 +113,89 @@ def load(path: str) -> Dict[str, np.ndarray]:
     return out
 
 
-def clock_offset(seq: np.ndarray, t_ns: np.ndarray) -> float:
-    """Pi time of board tick 0, from the fastest-arriving packet. Every other
-    packet arrived this much or later; the difference is the delay that varies."""
-    return float(np.min(t_ns - seq * TICK_NS))
+def local_offset(seq: np.ndarray, t_ns: np.ndarray) -> np.ndarray:
+    """Pi time of board tick 0, per state: the fastest packet of its second
+    and the seconds either side. One offset for a whole run reads clock drift
+    as delay."""
+    d = t_ns - seq * TICK_NS
+    w = (seq // OFFSET_WINDOW_TICKS).astype(np.int64)
+    uw, inv = np.unique(w, return_inverse=True)
+    mins = np.full(len(uw), np.inf)
+    np.minimum.at(mins, inv, d)
+    m = mins.copy()
+    m[1:] = np.minimum(m[1:], mins[:-1])
+    m[:-1] = np.minimum(m[:-1], mins[1:])
+    return m[inv]
 
 
-def applied(rec: Dict[str, np.ndarray], offset_ns: float) -> Dict[str, np.ndarray]:
-    """For each command that carried a new value: the board tick it left the Pi,
-    the first board tick whose target carries it, and the newest state the Pi
-    had when it left."""
-    seq, armed = rec["state_seq"], rec["state_armed"] > 0
-    res_now = rec["state_target"][:, NON_SEA] - rec["state_ref"][:, NON_SEA]
-    cmd_rad = rec["cmd_residual"][:, NON_SEA] * TWO_PI
-    sent, found, last = [], [], []
-    prev = None
-    for k in range(len(cmd_rad)):
-        v = cmd_rad[k]
-        new = prev is None or np.max(np.abs(v - prev)) > NEW_VALUE_RAD
-        prev = v
-        if not new:
+def applied_residual(rec: Dict[str, np.ndarray]) -> np.ndarray:
+    """target - ref on the springless joints, each against the reference of
+    the tick its target was computed on: every tick, or every second tick on
+    either parity - whichever reads smoothest across the armed ticks."""
+    tgt = rec["state_target"][:, NON_SEA]
+    ref = rec["state_ref"][:, NON_SEA]
+    prev = np.vstack([ref[:1], ref[:-1]])
+    seq = rec["state_seq"].astype(np.int64)
+    use = (rec["state_armed"] > 0) & np.all(np.isfinite(tgt), axis=1)
+    best, score = tgt - ref, np.inf
+    for cand in (tgt - ref,
+                 np.where((seq % 2 == 0)[:, None], tgt - ref, tgt - prev),
+                 np.where((seq % 2 == 1)[:, None], tgt - ref, tgt - prev)):
+        c = cand[use]
+        s = float(np.sum(np.abs(np.diff(c, axis=0)))) if len(c) > 1 else 0.0
+        if s < score:
+            best, score = cand, s
+    return best
+
+
+def command_ticks(rec, offsets) -> np.ndarray:
+    """The board tick each command arrived on, by the local clock."""
+    i = np.clip(np.searchsorted(rec["state_t"], rec["cmd_t"]), 0, len(rec["state_t"]) - 1)
+    return np.floor((rec["cmd_t"] - offsets[i]) / TICK_NS)
+
+
+def lag_windows(rec, offsets) -> Dict[str, np.ndarray]:
+    """For each stretch of walking: the delay (ticks) from a command's arrival
+    to the board's target carrying it, and how well that delay fits."""
+    seq = rec["state_seq"].astype(np.int64)
+    app = applied_residual(rec)
+    cmd = rec["cmd_residual"][:, NON_SEA] * TWO_PI
+    arr = command_ticks(rec, offsets)
+    ok = (rec["state_armed"] > 0) & np.all(np.isfinite(app), axis=1)
+    centre, lag, fit = [], [], []
+    idx = np.where(ok)[0]
+    for w0 in range(0, len(idx), LAG_WINDOW_TICKS):
+        rows = idx[w0:w0 + LAG_WINDOW_TICKS]
+        if len(rows) < LAG_WINDOW_TICKS // 2:
             continue
-        b = (rec["cmd_t"][k] - offset_ns) / TICK_NS
-        i0 = int(np.searchsorted(seq, np.floor(b)))
-        for i in range(i0, min(i0 + SEARCH_TICKS, len(seq))):
-            if armed[i] and np.all(np.abs(res_now[i] - v) < MATCH_TOL_RAD):
-                sent.append(b)
-                found.append(seq[i])
-                last.append(rec["cmd_last_seq"][k])
-                break
-    return {"sent_tick": np.asarray(sent), "applied_tick": np.asarray(found),
-            "last_seq": np.asarray(last)}
+        best = (np.inf, None)
+        for L in range(MAX_LAG_TICKS + 1):
+            k = np.searchsorted(arr, seq[rows] - L, side="right") - 1
+            good = k >= 0
+            if good.sum() < len(rows) // 2:
+                continue
+            c = cmd[k[good]]
+            if np.max(np.ptp(c, axis=0)) < MIN_MOTION_RAD:
+                best = (np.inf, None)
+                break                       # nothing moving: no delay to see
+            e = app[rows][good] - c
+            e = e - np.median(e, axis=0)    # a constant offset per joint is allowed
+            s = float(np.median(np.abs(e)))
+            if s < best[0]:
+                best = (s, L)
+        if best[1] is not None and best[0] < FIT_RAD:
+            centre.append(seq[rows[len(rows) // 2]])
+            lag.append(best[1])
+            fit.append(best[0])
+    return {"tick": np.asarray(centre), "lag": np.asarray(lag), "fit": np.asarray(fit)}
+
+
+def lag_at(win, tick: float) -> Optional[float]:
+    """The delay of the window nearest this tick, if one is within a window."""
+    if not len(win["tick"]):
+        return None
+    j = int(np.argmin(np.abs(win["tick"] - tick)))
+    return float(win["lag"][j]) if abs(win["tick"][j] - tick) <= LAG_WINDOW_TICKS else None
 
 
 def load_timing(path: str) -> Dict[str, np.ndarray]:
@@ -150,11 +216,12 @@ def find_timing(flt: str, t0_ns: float, t1_ns: float) -> Optional[str]:
     return None
 
 
-def stages(rec, offset_ns, app, tm) -> Dict[str, np.ndarray]:
+def stages(rec, offsets, win, tm) -> Dict[str, np.ndarray]:
     """Per policy action: every stage from the board's state to the board's target."""
     out = {k: [] for k in ("usb_in", "to_policy", "wait", "inference", "to_link",
                            "applied", "total")}
     seq, t_rx = rec["state_seq"], rec["state_t"]
+    arr = command_ticks(rec, offsets)
     for r in range(len(tm["state_seq"])):
         S = tm["state_seq"][r]
         i = int(np.searchsorted(seq, S))
@@ -163,17 +230,16 @@ def stages(rec, offset_ns, app, tm) -> Dict[str, np.ndarray]:
         k = int(np.searchsorted(rec["cmd_t"], tm["publish_ns"][r]))
         if k >= len(rec["cmd_t"]):
             continue
-        b = (rec["cmd_t"][k] - offset_ns) / TICK_NS
-        j = np.where(np.abs(app["sent_tick"] - b) < 1e-6)[0]
-        if not len(j):
-            continue            # that command was not a new value, or never found
-        out["usb_in"].append((t_rx[i] - S * TICK_NS - offset_ns) / 1e6)
+        L = lag_at(win, arr[k])
+        if L is None:
+            continue
+        out["usb_in"].append((t_rx[i] - S * TICK_NS - offsets[i]) / 1e6)
         out["to_policy"].append((tm["state_rx_ns"][r] - t_rx[i]) / 1e6)
         out["wait"].append((tm["act_start_ns"][r] - tm["state_rx_ns"][r]) / 1e6)
         out["inference"].append((tm["act_end_ns"][r] - tm["act_start_ns"][r]) / 1e6)
         out["to_link"].append((rec["cmd_t"][k] - tm["act_end_ns"][r]) / 1e6)
-        out["applied"].append(app["applied_tick"][j[0]] - b)
-        out["total"].append(app["applied_tick"][j[0]] - S)
+        out["applied"].append(L)
+        out["total"].append(arr[k] + L - S)
     return {k: np.asarray(v) for k, v in out.items()}
 
 
@@ -189,24 +255,32 @@ def report(flt: str, timing: Optional[str] = None) -> int:
     if not len(rec["state_seq"]) or not len(rec["cmd_t"]):
         print("no states or no commands in this recording")
         return 2
-    off = clock_offset(rec["state_seq"], rec["state_t"])
-    app = applied(rec, off)
+    off = local_offset(rec["state_seq"], rec["state_t"])
+    win = lag_windows(rec, off)
     usb = (rec["state_t"] - rec["state_seq"] * TICK_NS - off) / 1e6
     print(f"{os.path.basename(flt)}: {len(rec['state_seq'])} states, {len(rec['cmd_t'])} "
-          f"commands, {len(app['applied_tick'])} new command values found on the board")
-    print(_row("usb in", usb, "above the fastest packet"))
-    if not len(app["applied_tick"]):
-        print("  no command was found applied - was the robot armed and walking?")
+          f"commands, {len(win['lag'])} stretches of walking timed")
+    print(_row("usb in", usb, "above the fastest packet nearby"))
+    if not len(win["lag"]):
+        print("  no stretch could be timed - was the robot armed and walking, with the "
+              "policy moving its residual?")
         return 2
-    print(_row("applied", app["applied_tick"] - app["sent_tick"], "Pi send -> board target"))
-    lower = app["applied_tick"] - app["last_seq"]
+    print(_row("applied", win["lag"], "tick a command arrived -> board target"))
+
+    arr = command_ticks(rec, off)
+    lower = []
+    for k in range(len(arr)):
+        L = lag_at(win, arr[k])
+        if L is not None and rec["cmd_last_seq"][k] >= 0:
+            lower.append(arr[k] + L - rec["cmd_last_seq"][k])
+    lower = np.asarray(lower)
     print(_row("total >=", lower, "newest state the Pi had -> board target"))
 
     if timing is None:
         timing = find_timing(flt, rec["state_t"][0], rec["state_t"][-1])
     total = lower
     if timing:
-        sg = stages(rec, off, app, load_timing(timing))
+        sg = stages(rec, off, win, load_timing(timing))
         print(f"with {os.path.basename(timing)}:")
         for name in ("usb_in", "to_policy", "wait", "inference", "to_link", "applied"):
             print(_row(name.replace("_", " "), sg[name]))
