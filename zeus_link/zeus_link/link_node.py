@@ -51,7 +51,7 @@ from zeus_msgs.msg import NexusCommand, NexusState
 
 from .convert import (RESIDUAL_LIMIT_RAD, fill_state_msg, joint_state_arrays,
                       names_of, residual_rad_to_turns)
-from .flight_log import FlightRecorder, default_path
+from .flight_log import FlightRecorder, default_path, make_room
 from .nexus_link import NexusLink
 from .nexus_proto import (ACT_TELEM_FRESH, CMD_HOLD, CMD_RETURN, CMD_ZERO_ANKLES, HEALTH_NAMES, JOINT_INDEX, JOINT_NAMES,
                           NUM_JOINTS, PROTO_VERSION, SAFETY_ARMED, SAFETY_NAMES,
@@ -82,6 +82,9 @@ class LinkNode(Node):
         # than having to reproduce a fall.
         record = bool(self.declare_parameter("record", True).value)
         record_dir = str(self.declare_parameter("record_dir", "~/zeus_logs").value)
+        # Oldest recordings go first when the card runs low (KEEP protects the
+        # ones worth keeping): a full card stopped the robot launching at all.
+        min_free_gb = float(self.declare_parameter("record_min_free_gb", 4.0).value)
 
         self._port = find_port(requested)   # PortError propagates to main()
 
@@ -139,6 +142,12 @@ class LinkNode(Node):
         # first byte the board sends - t+0 - not with the first packet parsed.
         self._recorder = None
         if record:
+            gone = make_room(record_dir, int(min_free_gb * (1 << 30)))
+            if gone:
+                self.get_logger().warn(
+                    f"low disk: removed the {len(gone)} oldest recordings to keep "
+                    f"{min_free_gb:.0f} GB free (protect one by naming it in "
+                    f"{record_dir}/KEEP)")
             try:
                 self._recorder = FlightRecorder(default_path(record_dir), port=self._port,
                                                 proto_version=PROTO_VERSION)

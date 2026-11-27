@@ -6,6 +6,7 @@ afterwards - the fall, the fault, the link that stopped parsing - comes back
 from the Pi with holes in it, or does not open at all.
 """
 
+import os
 import struct
 import time
 
@@ -107,3 +108,49 @@ def test_the_link_records_rx_before_parsing_and_every_command_sent(monkeypatch, 
 def test_default_path_is_one_sortable_file_per_run(tmp_path):
     p = flight_log.default_path(str(tmp_path))
     assert p.startswith(str(tmp_path)) and p.endswith(".flt") and "zeus_" in p
+
+
+# ---- make_room: a full card must never stop the robot launching -------------
+
+def _files(tmp_path, names):
+    """Each file 100 bytes, mtimes in list order (oldest first)."""
+    for i, n in enumerate(names):
+        p = tmp_path / n
+        p.write_bytes(b"x" * 100)
+        os.utime(p, (1_000_000 + i, 1_000_000 + i))
+
+
+def _disk(tmp_path, capacity):
+    """free space = capacity - what the directory holds."""
+    return lambda: capacity - sum(f.stat().st_size for f in tmp_path.iterdir() if f.is_file())
+
+
+def test_make_room_removes_the_oldest_recordings_first_and_stops_when_enough(tmp_path):
+    _files(tmp_path, ["zeus_1.flt", "zeus_2.flt", "zeus_3.flt", "zeus_4.flt"])
+    # 400 bytes held on a 450-byte disk: 50 free, 250 wanted -> two must go
+    gone = flight_log.make_room(str(tmp_path), 250, free_bytes=_disk(tmp_path, 450))
+    assert [os.path.basename(g) for g in gone] == ["zeus_1.flt", "zeus_2.flt"]
+    assert sorted(f.name for f in tmp_path.iterdir()) == ["zeus_3.flt", "zeus_4.flt"]
+
+
+def test_make_room_never_touches_a_kept_walk_or_anything_else(tmp_path):
+    # The first walk is the oldest file AND the one worth keeping; a calibration
+    # dump in the same directory is not a recording at all.
+    _files(tmp_path, ["zeus_first_walk.flt", "notes.txt", "zeus_2.flt", "policy_timing_2.csv",
+                      "zeus_3.rrd", "zeus_4.flt"])
+    (tmp_path / "KEEP").write_text("# walks worth keeping\nzeus_first_walk.flt\n")
+    gone = flight_log.make_room(str(tmp_path), 10 ** 9, free_bytes=lambda: 0)
+    assert sorted(os.path.basename(g) for g in gone) == [
+        "policy_timing_2.csv", "zeus_2.flt", "zeus_3.rrd", "zeus_4.flt"]
+    assert sorted(f.name for f in tmp_path.iterdir()) == ["KEEP", "notes.txt",
+                                                          "zeus_first_walk.flt"]
+
+
+def test_make_room_does_nothing_with_space_to_spare(tmp_path):
+    _files(tmp_path, ["zeus_1.flt"])
+    assert flight_log.make_room(str(tmp_path), 100, free_bytes=lambda: 10 ** 9) == []
+    assert (tmp_path / "zeus_1.flt").exists()
+
+
+def test_make_room_on_a_missing_directory_is_quiet(tmp_path):
+    assert flight_log.make_room(str(tmp_path / "nope"), 100, free_bytes=lambda: 0) == []
