@@ -74,6 +74,12 @@ height limits.
 
 ### `rl_policy_node.py`
 
+- **Timing log** (2026-11-27): one CSV row per policy action while walking
+  (`policy_timing_*.csv` in `~/zeus_logs`, parameter `timing_dir`, empty turns
+  it off) - the board tick of the state used, when it arrived, inference start
+  and end, publish time. Logging only: no change to what the policy sees or
+  sends. `zeus_link latency_report` reads it with the flight recording.
+
 **Starting from a standing robot (soft start).** (`3ce6af5`)
 
 1. The arm guards pass, and the node sends `enable` + `hold` with zero residual.

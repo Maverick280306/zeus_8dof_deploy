@@ -161,12 +161,19 @@ python3 -m serial.tools.miniterm /dev/serial/by-id/usb-STMicroelectronics_STLINK
 ```bash
 ros2 run zeus_link link_check                 # a live one-line-per-second view
 ros2 run zeus_link link_validate --seconds 60 # measures, and says which side is wrong
+ros2 run zeus_link latency_report ~/zeus_logs/zeus_<run>.flt   # after a walk
 ```
 
 `link_validate` separates three things `link_check` conflates: the **board's**
 loop rate (from its own tick counter), **delivery** (the only figure about the
 cable and host), and **jitter** against the 250 Hz policy period. Exit 0 only on
 PASS.
+
+`latency_report` times a walk after the fact: from the board measuring the
+state the policy used to the board's drive target carrying the result, in board
+ticks, stage by stage. It needs the policy node's `policy_timing_*.csv`
+(written next to the recording while walking) for the exact figure; without it,
+a lower bound. Training allowed 0-20 ms of extra delay; exit 0 only inside that.
 
 ---
 

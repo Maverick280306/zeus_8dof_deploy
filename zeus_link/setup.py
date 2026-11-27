@@ -25,6 +25,7 @@ setup(
             'link_validate = zeus_link.link_validate:main',
             'fake_board = zeus_link.fake_board:main',
             'zeus_gui = zeus_link.gui_node:main',
+            'latency_report = zeus_link.latency_report:main',
         ],
     },
 )

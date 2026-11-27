@@ -77,6 +77,7 @@ class FakeBoard:
             self.gait_q = np.asarray(z["gait_q"], dtype=np.float64)
             self.gait_period = float(z["gait_period"])
         self.ramp_from = [0.0] * P.NUM_JOINTS
+        self.residual = [0.0] * P.NUM_JOINTS   # turns, the last accepted command's
         # --ankle-offset: a right ankle whose zero was lost, as seen on the
         # robot (6.5 and 10 deg). What the link node's zero-on-start must clear.
         self.ankle_offset = math.radians(ankle_offset_deg)
@@ -135,6 +136,7 @@ class FakeBoard:
             s["disables"] += 1
             self.needs_rearm = False
             self._accepted_seq = None
+            self.residual = [0.0] * P.NUM_JOINTS
             self._set(P.SAFETY_IDLE, "enable false")
             return
 
@@ -153,6 +155,7 @@ class FakeBoard:
             return
         self._reject_run = 0
         self._accepted_seq = seq
+        self.residual = list(residual)
         hold = bool(flags & P.CMD_HOLD)
         if self.safety != P.SAFETY_ARMED:
             self.soft, self.soft_t0 = "ramp", time.monotonic()
@@ -302,9 +305,11 @@ class FakeBoard:
                 health=0 if link_ok else P.HEALTH_LINK, safety_state=safety,
                 act_state=[8 if safety == P.SAFETY_ARMED else 1] * P.NUM_JOINTS,
                 # What the drives were told: the reference the board is playing
-                # while armed, and NaN while nothing is being driven.
-                act_target=(list(ref) if safety == P.SAFETY_ARMED
-                            else [float("nan")] * P.NUM_JOINTS),
+                # plus the last accepted residual while armed (as app.c reports
+                # it, so latency_report can time commands here too), NaN while
+                # nothing is being driven.
+                act_target=([r + 2.0 * math.pi * x for r, x in zip(ref, self.residual)]
+                            if safety == P.SAFETY_ARMED else [float("nan")] * P.NUM_JOINTS),
                 gains_seq=self.gains_seq,
                 # Every drive reporting, telemetry and heartbeat. The synthetic
                 # template's own act_flags are deliberately distinct per joint

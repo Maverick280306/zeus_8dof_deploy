@@ -51,6 +51,7 @@ OFF. Nothing re-arms on its own; START has to be pressed again.
 from __future__ import annotations
 
 import json
+import os
 import time
 
 import numpy as np
@@ -75,6 +76,37 @@ RATE_HZ = 250.0
 HANDSHAKE_TICKS = 50        # board must read IDLE/ARMED this long before enabling
 STALE_SEC = 0.02            # no new state for 20 ms -> hold the last command
 HALT_STALE_SEC = 0.1        # none for 100 ms -> stop, and stay stopped
+TIMING_FIELDS = "state_seq,state_rx_ns,act_start_ns,act_end_ns,publish_ns"
+
+
+class TimingLog:
+    """
+    One row per policy action, so `latency_report` can time every stage from
+    the board measuring a state to the board applying what the policy made of
+    it (2026-11-27: training allowed 0-20 ms of extra delay; nobody had
+    measured ours). time.monotonic_ns, the clock the flight recorder stamps
+    with, so the two line up without guessing.
+
+    Rows only while the policy acts (50 a second). A file that cannot be
+    written turns the log off - it must never be the thing that stops a walk.
+    """
+
+    def __init__(self, directory: str):
+        self.dir = os.path.expanduser(directory) if directory else ""
+        self.f = None
+
+    def row(self, *values):
+        if not self.dir:
+            return
+        try:
+            if self.f is None:
+                os.makedirs(self.dir, exist_ok=True)
+                name = time.strftime("policy_timing_%Y%m%d_%H%M%S.csv")
+                self.f = open(os.path.join(self.dir, name), "w", buffering=1)
+                self.f.write(TIMING_FIELDS + "\n")
+            self.f.write(",".join(str(int(v)) for v in values) + "\n")
+        except OSError:
+            self.dir = ""
 
 
 def health_names(mask: int) -> list:
@@ -88,6 +120,9 @@ class RLPolicyNode(Node):
         self.enable = bool(self.declare_parameter('enable', False).value)
         self.dry_run = bool(self.declare_parameter('dry_run', True).value)
         self.release = bool(self.declare_parameter('release', True).value)
+        self.timing = TimingLog(str(self.declare_parameter('timing_dir', '~/zeus_logs').value))
+        self.timing_row = None      # this tick's action, completed when it is published
+        self.state_rx_ns = 0        # when the newest state reached this node
 
         self.policy = Policy()
         # Where the IMU really is, in base_link. Default is the training model's,
@@ -141,6 +176,7 @@ class RLPolicyNode(Node):
     def on_state(self, msg):
         if self.state is None or msg.seq != self.state.seq:
             self.state_time = time.monotonic()
+            self.state_rx_ns = time.monotonic_ns()
         self.state = msg
         self.gate.watch_clock(msg)
 
@@ -321,6 +357,9 @@ class RLPolicyNode(Node):
 
         self.pub.publish(cmd)
         self.last_cmd = cmd
+        if self.timing_row is not None:
+            self.timing.row(*self.timing_row, time.monotonic_ns())
+            self.timing_row = None
 
     def stage(self, s, cmd):
         """Armed into the hold: keep it there, and release when allowed."""
@@ -389,6 +428,7 @@ class RLPolicyNode(Node):
     def run_policy(self, s, cmd):
         why = self.gate.fallen(s, self.adapter)
         if why is None and self.tick % self.decim == 0:
+            t0 = time.monotonic_ns()
             frame = self.adapter.frame(s)
             if frame is None:
                 why = "state went non-finite"
@@ -396,6 +436,7 @@ class RLPolicyNode(Node):
                 action = self.policy.act(self.adapter.stack(frame))
                 self.adapter.a_prev = action.astype(np.float64)
                 self.filter.command(action)
+                self.timing_row = (s.seq, self.state_rx_ns, t0, time.monotonic_ns())
         if why is not None:
             self.fall = why
             self.get_logger().error(f"STOP: {why}. Drives idled; press STOP to acknowledge, "
