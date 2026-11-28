@@ -304,3 +304,33 @@ def test_walk_is_released_only_upright(policy, lean_deg, ok):
     why = g.release_blockers(state(policy, quat=[math.cos(h), math.sin(h), 0.0, 0.0],
                                    contact=[1.0, 1.0]))
     assert (not any("leaning" in w for w in why)) == ok
+
+
+@pytest.mark.parametrize("roll_deg,ok,hint", [(-2.8, True, None), (0.0, True, None),
+                                              (-5.5, True, None), (3.6, False, "RIGHT"),
+                                              (0.9, False, "RIGHT"), (-7.0, False, "LEFT")])
+def test_walk_is_released_only_on_the_right_foot(policy, roll_deg, ok, hint):
+    # 2026-11-28: every hold rested on the LEFT foot (+0.9..+4.4 deg); the
+    # gait lifts the left foot first and was planned, and trained, from the
+    # right one at -2.8. The robot never moved its weight across and fell
+    # forward over a dragging left foot. Within 3 deg of the plan it releases.
+    g = Guards(policy)
+    g.phase_rate = 1.0 / policy.gait.period
+    h = math.radians(roll_deg) / 2
+    why = g.release_blockers(state(policy, quat=[math.cos(h), math.sin(h), 0.0, 0.0],
+                                   contact=[1.0, 1.0]))
+    wrong = [w for w in why if "wrong foot" in w]
+    assert (not wrong) == ok
+    if hint:
+        assert hint in wrong[0]
+
+
+def test_the_start_roll_is_the_gait_library_s():
+    # The number above is read off the library the policy was trained with; if
+    # the library or its start phase ever changes, this says so.
+    here = os.path.dirname(os.path.abspath(__file__))
+    lib = np.load(os.path.join(here, "..", "policy", "z1_softland_tol05", "source",
+                               "gait_library.npz"))
+    i = int(np.argmin(np.abs(lib["velocities"] - 0.30)))
+    k = int(round(Guards.START_WINDOW[0] * lib["base_roll"].shape[1]))
+    assert math.degrees(lib["base_roll"][i][k]) == pytest.approx(Guards.START_ROLL_DEG, abs=0.1)

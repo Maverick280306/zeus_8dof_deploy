@@ -60,6 +60,13 @@ Nothing else in this file changed.
   Released at 3°, it walked 3 s. On 2026-11-26 it was released at 5.6° (the leg
   kinematics put it at 4.3°, so the lean was real, not the IMU) and it spun 128°
   and fell back in 1.15 s.
+- **On the right foot to release: roll within 3° of −2.8°** (`START_ROLL_DEG`,
+  2026-11-28). With no ankle roll, the robot holding the start pose rests on one
+  flat sole. The gait lifts the LEFT foot first and starts (and trained) with the
+  RIGHT sole flat at −2.8°; every hold 2026-11-26..28 rested on the left foot
+  (+0.9…+4.4°, IMU and leg kinematics agreeing within 0.8°). The left foot stayed
+  loaded, dragged, the swing hip stalled at −9° of −21°, and the robot fell
+  forward before the knee lifted. The hold message says which way to tip it.
 - **Both feet must be down to release** (2026-11-25). The gait's first move out of
   phase 0.95 lifts the left foot; a release on the left foot alone (the right
   switch open all hold) left nothing under the robot, and it rolled 8→16° in 0.9 s.

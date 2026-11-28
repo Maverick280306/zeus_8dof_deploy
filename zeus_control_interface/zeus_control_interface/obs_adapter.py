@@ -209,6 +209,18 @@ class Guards:
     # a still robot - so at 3 WALK could not be released. Put it back to 3.0
     # once the mount is rigid and re-measured.
     RELEASE_TILT_DEG = 15.0
+    # Which foot it stands on (2026-11-28). With no ankle roll joint, a robot
+    # holding the start pose rests on ONE flat sole, the other on its edge -
+    # and the gait's first move lifts the LEFT foot. The library starts with
+    # the RIGHT sole flat, torso rolled -2.8 deg (gait_library.npz, v 0.30,
+    # base_roll at phase 0.95), and training always started there, often
+    # already moving that way. The robot, released from rest, settled on its
+    # LEFT foot (+0.9..+4.4 deg in every hold 2026-11-26..28): the left foot
+    # stayed loaded, dragged in the mat, the swing hip stalled at -9 of -21
+    # deg, and with no foot landing in front it fell forward before the knee
+    # lifted. Released within 3 deg of the plan, it starts where it learned.
+    START_ROLL_DEG = -2.8
+    START_ROLL_TOL_DEG = 3.0
     PHASE_MEASURE_TICKS = 500    # 1 kHz ticks to measure it over
 
     def __init__(self, policy: Policy) -> None:
@@ -265,6 +277,16 @@ class Guards:
         if lean > self.RELEASE_TILT_DEG:
             why.append(f"leaning {lean:.1f} deg - straighten the robot to under "
                        f"{self.RELEASE_TILT_DEG:.0f} deg to walk")
+
+        # On the right foot (2026-11-28): see START_ROLL_DEG.
+        roll = math.degrees(math.atan2(2.0 * (q[0] * q[1] + q[2] * q[3]),
+                                       1.0 - 2.0 * (q[1] * q[1] + q[2] * q[2])))
+        off = roll - self.START_ROLL_DEG
+        if abs(off) > self.START_ROLL_TOL_DEG:
+            side = "RIGHT side, onto the right foot" if off > 0 else "LEFT side"
+            why.append(f"standing on the wrong foot: roll {roll:+.1f} deg, the gait starts "
+                       f"at {self.START_ROLL_DEG:+.1f} - tip it {abs(off):.1f} deg toward its "
+                       f"{side}")
 
         # Both feet down (2026-11-25). The gait's first move out of the start
         # phase lifts the LEFT foot; released standing on the left foot alone
